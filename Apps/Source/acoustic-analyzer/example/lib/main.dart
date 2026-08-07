@@ -1,517 +1,855 @@
-import 'dart:io';
-import 'dart:developer' as dev;
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_recorder/flutter_recorder.dart';
-import 'package:flutter_recorder_example/ui/bars.dart';
-import 'package:logging/logging.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'calibration_manager.dart';
 
-/// Demostrate how to use flutter_recorder.
-///
-/// The silence detection and the visualizer works when using [PCMFormat.f32].
-/// Writing audio stream to file is not implemented on Web.
-void main() async {
-  // The `flutter_recorder` package logs everything
-  // (from severe warnings to fine debug messages)
-  // using the standard `package:logging`.
-  // You can listen to the logs as shown below.
-  Logger.root.level = kDebugMode ? Level.FINE : Level.INFO;
-  Logger.root.onRecord.listen((record) {
-    dev.log(
-      record.message,
-      time: record.time,
-      level: record.level.value,
-      name: record.loggerName,
-      zone: record.zone,
-      error: record.error,
-      stackTrace: record.stackTrace,
-    );
-  });
+const double kSampleRate = 44100.0;
 
-  runApp(
-    MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text('Acoustic Analyzer'),
-        ),
-        body: MyApp(),
-      ),
-    ),
-  );
+void main() {
+  runApp(const MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: MainScreen(),
+  ));
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MyAppState extends State<MyApp> {
-  Directory? savingDir;
-  final format = PCMFormat.f32le;
-  final sampleRate = 44100;
-  final channels = RecorderChannels.mono;
-  final recorder = Recorder.instance;
-  String? filePath;
-  var thresholdDb = -20.0;
-  var silenceDuration = 2.0;
-  var secondsOfAudioToWriteBefore = 0.0;
-  var androidInputPresetValue = 0;
-
-  File? file;
-
-  AndroidInputPreset? get selectedAndroidInputPreset =>
-      switch (androidInputPresetValue) {
-        1 => AndroidInputPreset.generic,
-        2 => AndroidInputPreset.camcorder,
-        3 => AndroidInputPreset.voiceRecognition,
-        4 => AndroidInputPreset.voiceCommunication,
-        5 => AndroidInputPreset.unprocessed,
-        _ => null,
-      };
-
-  String androidInputPresetLabel(int value) => switch (value) {
-        1 => 'Generic',
-        2 => 'Camcorder',
-        3 => 'Voice recognition',
-        4 => 'Voice communication',
-        5 => 'Unprocessed',
-        _ => 'System default',
-      };
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  bool _isInitialized = false;
+  String _error = '';
 
   @override
   void initState() {
     super.initState();
-    if (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      Permission.microphone.request().isGranted.then((value) async {
-        if (!value) {
-          await [Permission.microphone].request();
-        }
-      });
+    _initRecorder();
+  }
+
+  Future<void> _initRecorder() async {
+    final status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      setState(() => _error = 'Microphone permission denied');
+      return;
     }
 
-    /// Listen to audio data stream. The data is received as Uint8List.
-    recorder.uint8ListStream.listen((data) {
-      /// Write the PCM data to file. It can then be imported with the correct
-      /// parameters with for example Audacity.
-      /// Not testing on Web platform.
-      if (!kIsWeb) {
-        file?.writeAsBytesSync(
-          // If you want a conversion, call one of the `to*List` methods.
-          // data.toF32List(from: format).buffer.asUint8List(),
-          data.rawData,
-          mode: FileMode.writeOnlyAppend,
-        );
+    try {
+      await Recorder.instance.init(
+        format: PCMFormat.f32le,
+        sampleRate: kSampleRate.toInt(),
+        channels: RecorderChannels.mono,
+      );
+      Recorder.instance.start();
+      setState(() => _isInitialized = true);
+    } catch (e) {
+      setState(() => _error = 'Initialization error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    Recorder.instance.stop();
+    Recorder.instance.deinit();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget content;
+    if (_error.isNotEmpty) {
+      content = Center(
+        child: Text(_error, style: const TextStyle(color: Colors.red, fontSize: 18)),
+      );
+    } else if (!_isInitialized) {
+      content = const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Initializing Recorder...', style: TextStyle(color: Colors.white70)),
+          ],
+        ),
+      );
+    } else {
+      content = IndexedStack(
+        index: _selectedIndex,
+        children: const [
+          SpectrogramPage(),
+          SplMeterPage(),
+          Rt60Page(),
+          RastiPage(),
+        ],
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(switch (_selectedIndex) {
+          0 => 'Spectrogram',
+          1 => 'SPL Meter',
+          2 => 'RT60 Prediction',
+          3 => 'RASTI Calculation',
+          _ => '',
+        }),
+        backgroundColor: Colors.grey[900],
+        foregroundColor: Colors.white,
+      ),
+      body: content,
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        backgroundColor: Colors.grey[900],
+        selectedItemColor: Colors.blue,
+        unselectedItemColor: Colors.white70,
+        type: BottomNavigationBarType.fixed,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.waves),
+            label: 'Spectrogram',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.equalizer),
+            label: 'SPL Meter',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.timer),
+            label: 'RT60',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.record_voice_over),
+            label: 'RASTI',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpectrogramPage extends StatefulWidget {
+// ... existing SpectrogramPage ...
+  const SpectrogramPage({super.key});
+
+  @override
+  State<SpectrogramPage> createState() => _SpectrogramPageState();
+}
+
+class _SpectrogramPageState extends State<SpectrogramPage> {
+  final List<Float32List> _history = [];
+  static const int _maxHistory = 150;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      if (!mounted) return;
+      final fft = Recorder.instance.getFft(alwaysReturnData: true);
+      if (fft.isNotEmpty) {
+        setState(() {
+          _history.insert(0, Float32List.fromList(fft));
+          if (_history.length > _maxHistory) {
+            _history.removeLast();
+          }
+        });
       }
     });
   }
 
   @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.topCenter,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(10),
-        child: Column(
+    return Padding(
+      padding: const EdgeInsets.all(2.0),
+      child: CustomPaint(
+        painter: SpectrogramPainter(history: _history),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class SplMeterPage extends StatefulWidget {
+  const SplMeterPage({super.key});
+
+  @override
+  State<SplMeterPage> createState() => _SplMeterPageState();
+}
+
+class _SplMeterPageState extends State<SplMeterPage> {
+  double _db = -100.0;
+  Timer? _timer;
+  final _cal = CalibrationManager.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (!mounted) return;
+      
+      final fft = Recorder.instance.getFft(alwaysReturnData: true);
+      setState(() {
+        _db = _cal.calculateSpl(fft, kSampleRate);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _showCalibrationDialog() {
+    final controller = TextEditingController(text: _cal.referenceOffset.toString());
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('SPL Calibration'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            /// List capture devices, init, start, deinit
-            Wrap(
-              runSpacing: 6,
-              spacing: 6,
+            const Text('Set reference offset to match a known SPL source (e.g. 94dB calibrator).'),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Manual Reference Offset (dB)'),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                // To calibrate to 94dB:
+                // current_db = dbfs + old_offset
+                // we want: 94 = dbfs + new_offset
+                // so: new_offset = 94 - dbfs
+                // dbfs = current_db - old_offset
+                final dbfs = _db - _cal.referenceOffset;
+                final newOffset = 94.0 - dbfs;
+                setState(() {
+                  _cal.referenceOffset = newOffset;
+                  controller.text = newOffset.toStringAsFixed(1);
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Calibrated to 94.0 dB')),
+                );
+              },
+              icon: const Icon(Icons.auto_fix_high),
+              label: const Text('Auto-Calibrate to 94.0 dB'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                // Sample calibration data: +5dB at 100Hz, -3dB at 10kHz
+                const sampleCal = "100 5.0\n1000 0.0\n10000 -3.0";
+                _cal.loadCalibrationData(sampleCal);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Sample Calibration Loaded')),
+                );
+              },
+              child: const Text('Load Sample .cal Data'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val != null) {
+                setState(() => _cal.referenceOffset = val);
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Standard SPL range: 30dB (very quiet) to 120dB (painful)
+    final double normalized = ((_db - 30) / (120 - 30)).clamp(0.0, 1.0);
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Android input preset: '),
-                      DropdownButton<int>(
-                        value: androidInputPresetValue,
-                        items: List<DropdownMenuItem<int>>.generate(
-                          AndroidInputPreset.values.length + 1,
-                          (index) => DropdownMenuItem<int>(
-                            value: index,
-                            child: Text(androidInputPresetLabel(index)),
-                          ),
-                        ),
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() {
-                            androidInputPresetValue = value;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                OutlinedButton(
-                  onPressed: () {
-                    showDeviceListDialog();
-                  },
-                  child: const Text('listCaptureDevices'),
+                const Text('Weighting: ', style: TextStyle(color: Colors.white70)),
+                ChoiceChip(
+                  label: const Text('Z (None)'),
+                  selected: !_cal.isAWeightingEnabled,
+                  onSelected: (val) => setState(() => _cal.isAWeightingEnabled = !val),
                 ),
-                OutlinedButton(
-                  onPressed: () async {
-                    try {
-                      await recorder.init(
-                        format: format,
-                        sampleRate: sampleRate,
-                        channels: channels,
-                        androidInputPreset: selectedAndroidInputPreset,
-                      );
-                    } on Exception catch (e) {
-                      debugPrint('-------------- init() error: $e\n');
-                    }
-                  },
-                  child: const Text('init'),
-                ),
-                OutlinedButton(
-                  onPressed: () {
-                    try {
-                      recorder.start();
-                    } on Exception catch (e) {
-                      debugPrint('-------------- start() error: $e\n');
-                    }
-                  },
-                  child: const Text('start'),
-                ),
-                OutlinedButton(
-                  onPressed: () {
-                    recorder.deinit();
-                  },
-                  child: const Text('deinit'),
+                const SizedBox(width: 10),
+                ChoiceChip(
+                  label: const Text('A-Weight'),
+                  selected: _cal.isAWeightingEnabled,
+                  onSelected: (val) => setState(() => _cal.isAWeightingEnabled = val),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-
-            /// Recording
-            Wrap(
-              runSpacing: 6,
-              spacing: 6,
-              children: [
-                ElevatedButton(
-                  onPressed: () async {
-                    try {
-                      /// Asking for file path to store the audio file.
-                      /// On web platform, it will be asked internally
-                      /// from the browser.
-                      if (!kIsWeb) {
-                        final Directory saveDir;
-                        if (defaultTargetPlatform == TargetPlatform.iOS ||
-                            defaultTargetPlatform == TargetPlatform.android) {
-                          // On mobile, use app documents directory
-                          saveDir = await getApplicationDocumentsDirectory();
-                        } else {
-                          // On desktop, use downloads directory
-                          final downloadsDir = await getDownloadsDirectory();
-                          if (downloadsDir == null) {
-                            debugPrint('-------------- startRecording() '
-                                'Could not get downloads directory\n');
-                            return;
-                          }
-                          saveDir = downloadsDir;
-                        }
-                        // Ensure the directory exists
-                        if (!saveDir.existsSync()) {
-                          saveDir.createSync(recursive: true);
-                        }
-                        filePath = '${saveDir.path}/flutter_recorder.ogg';
-                        recorder.startRecording(
-                          completeFilePath: filePath!,
-                          format: RecordingFormat.opusOgg,
-                        );
-                      } else {
-                        recorder.startRecording();
-                      }
-                    } on Exception catch (e) {
-                      debugPrint('-------------- startRecording() $e\n');
-                    }
-                  },
-                  child: const Text('Start recording'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    recorder.setPauseRecording(pause: true);
-                  },
-                  child: const Text('Pause recording'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    recorder.setPauseRecording(pause: false);
-                  },
-                  child: const Text('UN-Pause recording'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    recorder.stopRecording();
-                    if (!kIsWeb) {
-                      debugPrint('Audio recorded to "$filePath"');
-                      showFileRecordedDialog(filePath!);
-                    }
-                  },
-                  child: const Text('Stop recording'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            /// Streaming
-            Wrap(
-              runSpacing: 6,
-              spacing: 6,
-              children: [
-                CircularProgressIndicator(),
-                OutlinedButton(
-                  onPressed: () async {
-                    recorder.startStreamingData(format: StreamingFormat.opus);
-
-                    if (!kIsWeb) {
-                      final Directory baseDir;
-                      if (defaultTargetPlatform == TargetPlatform.iOS ||
-                          defaultTargetPlatform == TargetPlatform.android) {
-                        // On mobile, use app documents directory
-                        baseDir = await getApplicationDocumentsDirectory();
-                      } else {
-                        // On desktop, use downloads directory
-                        final downloadsDir = await getDownloadsDirectory();
-                        if (downloadsDir == null) {
-                          debugPrint('Cannot get download directory!');
-                          return;
-                        }
-                        baseDir = downloadsDir;
-                      }
-                      savingDir = Directory('${baseDir.path}/flutter_recorder');
-                      savingDir!.createSync();
-
-                      file = File(
-                          '${savingDir?.path}/fr_${sampleRate}_${format.name}_'
-                          '${channels.count}.pcm');
-                      try {
-                        if (file?.existsSync() ?? false) {
-                          file?.deleteSync();
-                        }
-                      } catch (e) {
-                        debugPrint('Error deleting file: $e');
-                      }
-                    }
-                  },
-                  child: const Text('start stream'),
-                ),
-                OutlinedButton(
-                  onPressed: () {
-                    recorder.stopStreamingData();
-                  },
-                  child: const Text('stop stream'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            /// The silence detection is available only with f32 format and
-            /// the visualization is adapted only with that format.
-            if (format == PCMFormat.f32le)
-              Column(
-                children: [
-                  Column(
-                    children: [
-                      StreamBuilder(
-                        stream: recorder.silenceChangedEvents,
-                        builder: (context, snapshot) {
-                          return ColoredBox(
-                            color: snapshot.hasData && snapshot.data!.isSilent
-                                ? Colors.green
-                                : Colors.red,
-                            child: SizedBox(
-                              width: 70,
-                              height: 50,
-                              child: Center(
-                                child: Text(
-                                    recorder.getVolumeDb().toStringAsFixed(1)),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        runSpacing: 6,
-                        spacing: 6,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              recorder.setSilenceDetection(
-                                enable: true,
-                                onSilenceChanged: (isSilent, decibel) {
-                                  /// Here you can check if silence is changed.
-                                  /// Or you can do the same thing with the Stream
-                                  /// [Recorder.instance.silenceChangedEvents]
-                                  // debugPrint('SILENCE CHANGED: $isSilent, $decibel');
-                                },
-                              );
-                              recorder.setSilenceThresholdDb(-27);
-                              recorder.setSilenceDuration(0.5);
-                              recorder.setSecondsOfAudioToWriteBefore(0.0);
-                              setState(() {
-                                thresholdDb = -27;
-                                silenceDuration = 0.5;
-                                secondsOfAudioToWriteBefore = 0;
-                              });
-                            },
-                            child: const Text(
-                                'setSilenceDetection ON -27, 0.5, 0.0'),
-                          ),
-                          OutlinedButton(
-                            onPressed: () {
-                              recorder.setSilenceDetection(enable: false);
-                            },
-                            child: const Text('setSilenceDetection OFF'),
-                          ),
-                        ],
-                      ),
-
-                      // Threshold dB slider
-                      Row(
-                        mainAxisSize: MainAxisSize.max,
-                        children: [
-                          Text(
-                              'Threshold: ${thresholdDb.toStringAsFixed(1)}dB'),
-                          Expanded(
-                            child: Slider(
-                              value: thresholdDb,
-                              min: -100,
-                              max: 0,
-                              label: thresholdDb.toStringAsFixed(1),
-                              onChanged: (value) {
-                                recorder.setSilenceThresholdDb(value);
-                                setState(() {
-                                  thresholdDb = value;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Silence duration slider
-                      Row(
-                        mainAxisSize: MainAxisSize.max,
-                        children: [
-                          Text('Silence duration: '
-                              '${silenceDuration.toStringAsFixed(1)}'),
-                          Expanded(
-                            child: Slider(
-                              value: silenceDuration,
-                              min: 0,
-                              max: 10,
-                              label: silenceDuration.toStringAsFixed(1),
-                              onChanged: (value) {
-                                recorder.setSilenceDuration(value);
-                                setState(() {
-                                  silenceDuration = value;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Silence duration slider
-                      Row(
-                        mainAxisSize: MainAxisSize.max,
-                        children: [
-                          Text('Write before: '
-                              '${secondsOfAudioToWriteBefore.toStringAsFixed(1)}'),
-                          Expanded(
-                            child: Slider(
-                              value: secondsOfAudioToWriteBefore,
-                              min: 0,
-                              max: 5,
-                              label: silenceDuration.toStringAsFixed(1),
-                              onChanged: (value) {
-                                recorder.setSecondsOfAudioToWriteBefore(value);
-                                setState(() {
-                                  secondsOfAudioToWriteBefore = value;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const Bars(),
-                ],
+            const SizedBox(height: 40),
+            Text(
+              '${_db.toStringAsFixed(1)} dB(${_cal.isAWeightingEnabled ? 'A' : 'Z'})',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 64,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Courier',
               ),
+            ),
+            const SizedBox(height: 40),
+            // Visual Meter
+            Stack(
+              children: [
+                Container(
+                  height: 40,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[900],
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                ),
+                FractionallySizedBox(
+                  widthFactor: normalized,
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.green.withOpacity(0.8),
+                          Colors.yellow.withOpacity(0.8),
+                          Colors.red.withOpacity(0.8),
+                        ],
+                        stops: const [0.6, 0.8, 1.0],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('30 dB', style: TextStyle(color: Colors.white54)),
+                Text('120 dB', style: TextStyle(color: Colors.white54)),
+              ],
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton.icon(
+              onPressed: _showCalibrationDialog,
+              icon: const Icon(Icons.settings_input_antenna),
+              label: const Text('Calibration Settings'),
+            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Future<void> showFileRecordedDialog(String filePath) async {
-    final fileExists = await File(filePath).exists();
-    if (!mounted) return;
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Recording saved!'),
-          content: Text('Audio saved to:\n$filePath\nFile exists: $fileExists'),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('open'),
-              onPressed: () async {
-                OpenFilex.open(
-                  filePath,
-                  type: 'audio/wav',
-                );
-              },
-            ),
-            TextButton(
-              child: const Text('close'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
+class SpectrogramPainter extends CustomPainter {
+  final List<Float32List> history;
+  final _cal = CalibrationManager.instance;
+
+  SpectrogramPainter({required this.history});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (history.isEmpty) return;
+
+    const double labelWidth = 55.0;
+    final double drawingWidth = size.width - labelWidth;
+    final double stepX = drawingWidth / history.length;
+    final double stepY = size.height / 256; // 256 frequency bins
+    final double binWidth = (kSampleRate / 2.0) / 256.0;
+
+    final paint = Paint();
+
+    // 1. Draw Spectrogram Data
+    for (int t = 0; t < history.length; t++) {
+      final fft = history[t];
+      for (int f = 0; f < fft.length; f++) {
+        final freq = f * binWidth;
+        final calOffset = _cal.getOffsetForFrequency(freq);
+        
+        final gain = math.pow(10, calOffset / 20.0);
+        final double magnitude = (fft[f] * gain).clamp(0.0, 1.0);
+        
+        paint.color = _getHeatmapColor(magnitude);
+
+        canvas.drawRect(
+          Rect.fromLTWH(
+            labelWidth + drawingWidth - (t * stepX) - stepX,
+            size.height - (f * stepY) - stepY,
+            stepX + 0.5,
+            stepY + 0.5,
+          ),
+          paint,
         );
-      },
+      }
+    }
+
+    // 2. Draw Frequency Axis (Labels and Grid)
+    final textStyle = TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold);
+    final linePaint = Paint()..color = Colors.white24..strokeWidth = 1;
+
+    final List<int> labels = [100, 500, 1000, 2000, 5000, 10000, 15000, 20000];
+    
+    for (final hz in labels) {
+      final double y = size.height - (hz / (kSampleRate / 2.0) * size.height);
+      
+      // Draw grid line
+      canvas.drawLine(Offset(labelWidth, y), Offset(size.width, y), linePaint);
+
+      // Draw label
+      final tp = TextPainter(
+        text: TextSpan(text: hz >= 1000 ? '${(hz / 1000).toStringAsFixed(0)}k' : '$hz', style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      
+      tp.paint(canvas, Offset(labelWidth - tp.width - 5, y - (tp.height / 2)));
+    }
+
+    // Y-Axis title
+    final titleTp = TextPainter(
+      text: const TextSpan(text: 'Hz', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    titleTp.paint(canvas, Offset(5, 5));
+  }
+
+  Color _getHeatmapColor(double magnitude) {
+    if (magnitude < 0.1) return Colors.black;
+    if (magnitude < 0.3) return Color.lerp(Colors.black, Colors.blue, (magnitude - 0.1) / 0.2)!;
+    if (magnitude < 0.5) return Color.lerp(Colors.blue, Colors.green, (magnitude - 0.3) / 0.2)!;
+    if (magnitude < 0.8) return Color.lerp(Colors.green, Colors.yellow, (magnitude - 0.5) / 0.3)!;
+    return Color.lerp(Colors.yellow, Colors.red, (magnitude - 0.8) / 0.2)!;
+  }
+
+  @override
+  bool shouldRepaint(covariant SpectrogramPainter oldDelegate) => true;
+}
+
+class Rt60Page extends StatefulWidget {
+  const Rt60Page({super.key});
+
+  @override
+  State<Rt60Page> createState() => _Rt60PageState();
+}
+
+class _Rt60PageState extends State<Rt60Page> {
+  Timer? _timer;
+  String _status = 'Ready';
+  double? _rt60;
+  bool _isListening = false;
+
+  // Settings
+  final double _triggerThreshold = -25.0; // Trigger when sound is louder than this
+  final double _noiseFloor = -60.0; // Stop measuring when it hits noise
+
+  void _toggleListening() {
+    setState(() {
+      _isListening = !_isListening;
+      if (_isListening) {
+        _status = 'Listening for impulse (clap)...';
+        _rt60 = null;
+        _startMonitoring();
+      } else {
+        _status = 'Ready';
+        _timer?.cancel();
+      }
+    });
+  }
+
+  void _startMonitoring() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+      if (!mounted) return;
+
+      final double currentDb = Recorder.instance.getVolumeDb();
+
+      if (currentDb > _triggerThreshold) {
+        timer.cancel();
+        _recordDecay();
+      }
+    });
+  }
+
+  void _recordDecay() {
+    setState(() => _status = 'Recording decay...');
+    final List<double> values = [];
+    final DateTime start = DateTime.now();
+
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+      final double currentDb = Recorder.instance.getVolumeDb();
+      values.add(currentDb);
+
+      // Stop after 1.5 seconds
+      if (DateTime.now().difference(start).inMilliseconds > 1500) {
+        timer.cancel();
+        _calculateRt60(values);
+      }
+    });
+  }
+
+  void _calculateRt60(List<double> values) {
+    if (values.isEmpty) return;
+
+    // Find the peak
+    double peak = -100.0;
+    int peakIndex = 0;
+    for (int i = 0; i < values.length; i++) {
+      if (values[i] > peak) {
+        peak = values[i];
+        peakIndex = i;
+      }
+    }
+
+    // Filter data from peak until it drops by 20dB or hits noise floor
+    final List<double> decayPoints = [];
+    for (int i = peakIndex; i < values.length; i++) {
+      decayPoints.add(values[i]);
+      if (values[i] < peak - 20 || values[i] < _noiseFloor) break;
+    }
+
+    if (decayPoints.length < 5) {
+      setState(() {
+        _status = 'Signal too short. Try a louder clap.';
+        _isListening = false;
+      });
+      return;
+    }
+
+    // Simple Linear Regression for slope (dB per sample)
+    double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    int n = decayPoints.length;
+    for (int i = 0; i < n; i++) {
+      sumX += i;
+      sumY += decayPoints[i];
+      sumXY += i * decayPoints[i];
+      sumXX += i * i;
+    }
+
+    double denominator = (n * sumXX - sumX * sumX);
+    if (denominator == 0) return;
+    double slope = (n * sumXY - sumX * sumY) / denominator;
+
+    if (slope >= 0) {
+      setState(() {
+        _status = 'Invalid decay slope detected.';
+        _isListening = false;
+      });
+      return;
+    }
+
+    // RT60 = (60 / |slope|) * 10ms
+    double rt60Result = (60.0 / slope.abs()) * 0.01;
+
+    setState(() {
+      _rt60 = rt60Result;
+      _status = 'Measurement Complete';
+      _isListening = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.av_timer, size: 80, color: Colors.blue),
+          const SizedBox(height: 24),
+          Text(_status, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+          const SizedBox(height: 40),
+          if (_rt60 != null) ...[
+            const Text('Estimated RT60', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            Text('${_rt60!.toStringAsFixed(2)}s',
+                style: const TextStyle(color: Colors.blue, fontSize: 72, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            Text(_getRoomDescription(_rt60!), style: const TextStyle(color: Colors.green, fontSize: 18)),
+          ],
+          const SizedBox(height: 60),
+          ElevatedButton.icon(
+            onPressed: _toggleListening,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isListening ? Colors.red : Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            ),
+            icon: Icon(_isListening ? Icons.stop : Icons.mic),
+            label: Text(_isListening ? 'STOP' : 'START LISTENING'),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Tip: Press start and make a loud impulse (clap or pop a balloon) to measure reverb.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 
-  Future<void> showDeviceListDialog() async {
-    final devices = recorder.listCaptureDevices();
-    String devicesString = devices.asMap().entries.map((entry) {
-      return '${entry.value.id} ${entry.value.isDefault ? 'DEFAULT' : ''} - '
-          ' ${entry.value.name}';
-    }).join('\n\n');
+  String _getRoomDescription(double rt) {
+    if (rt < 0.3) return "Very Dry (Recording Studio)";
+    if (rt < 0.6) return "Dry (Living Room)";
+    if (rt < 1.0) return "Normal (Office/Classroom)";
+    if (rt < 1.5) return "Live (Large Hall)";
+    return "Very Reverberant (Cathedral/Empty Warehouse)";
+  }
+}
 
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Available input devices'),
-          content: Text(devicesString),
-          actions: <Widget>[
-            const Text(''),
-            TextButton(
-              child: const Text('close'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+class RastiPage extends StatefulWidget {
+  const RastiPage({super.key});
+
+  @override
+  State<RastiPage> createState() => _RastiPageState();
+}
+
+class _RastiPageState extends State<RastiPage> {
+  Timer? _timer;
+  String _status = 'Ready';
+  double? _rasti;
+  bool _isMeasuring = false;
+  
+  // RASTI standard modulation frequencies
+  final List<double> _modFreqs = [0.7, 1.0, 1.4, 2.0, 2.8, 4.0, 5.6, 8.0, 11.2];
+
+  void _startMeasurement() {
+    setState(() {
+      _isMeasuring = true;
+      _status = 'Step 1: Measuring ambient noise...';
+    });
+
+    // 1. Measure background noise for 1 second to get SNR baseline
+    double noiseSum = 0;
+    int noiseCount = 0;
+    
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      noiseSum += Recorder.instance.getVolumeDb();
+      noiseCount++;
+      
+      if (noiseCount >= 20) { // 1 second
+        timer.cancel();
+        double avgNoise = noiseSum / noiseCount;
+        _listenForImpulse(avgNoise);
+      }
+    });
+  }
+
+  void _listenForImpulse(double noiseFloor) {
+    setState(() => _status = 'Step 2: Listening for loud impulse (clap)...');
+    
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+      final double currentDb = Recorder.instance.getVolumeDb();
+      
+      if (currentDb > noiseFloor + 25) { // Significant impulse detected
+        timer.cancel();
+        _recordDecay(noiseFloor, currentDb);
+      }
+    });
+  }
+
+  void _recordDecay(double noiseFloor, double peakDb) {
+    setState(() => _status = 'Step 3: Calculating decay and MTF...');
+    final List<double> decayValues = [];
+    final DateTime start = DateTime.now();
+    
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+      decayValues.add(Recorder.instance.getVolumeDb());
+      
+      if (DateTime.now().difference(start).inMilliseconds > 1200) {
+        timer.cancel();
+        _computeRasti(decayValues, noiseFloor, peakDb);
+      }
+    });
+  }
+
+  void _computeRasti(List<double> decay, double noiseFloor, double peakDb) {
+    // 1. Calculate RT60 from decay (Simple slope)
+    double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    int n = decay.length > 50 ? 50 : decay.length; // First 500ms
+    for (int i = 0; i < n; i++) {
+      sumX += i;
+      sumY += decay[i];
+      sumXY += i * decay[i];
+      sumXX += i * i;
+    }
+    double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    double rt60 = (60.0 / slope.abs()) * 0.01;
+    
+    // 2. Calculate effective SNR
+    // We assume the signal (speech) would be around 65dB in a real scenario,
+    // but here we use the measured peak vs noise for the specific room state.
+    double snr = peakDb - noiseFloor;
+
+    // 3. Calculate Transmission Index (TI) for each modulation frequency
+    List<double> tis = [];
+    for (double fm in _modFreqs) {
+      // Modulation Transfer Function due to reverberation
+      double mRev = 1.0 / math.sqrt(1.0 + math.pow(2 * math.pi * fm * rt60 / 13.8, 2));
+      
+      // Modulation Transfer Function due to noise
+      double mNoise = 1.0 / (1.0 + math.pow(10, -snr / 10.0));
+      
+      double mTotal = mRev * mNoise;
+      
+      // Convert to Apparent SNR
+      double snrApp = 10.0 * math.log(mTotal / (1.0 - mTotal).clamp(0.0001, 1.0)) / math.ln10;
+      
+      // Clip to [-15, 15] range and normalize to [0, 1]
+      double ti = (snrApp + 15.0) / 30.0;
+      tis.add(ti.clamp(0.0, 1.0));
+    }
+
+    // 4. RASTI is the arithmetic mean of TI values
+    double rastiResult = tis.reduce((a, b) => a + b) / tis.length;
+
+    setState(() {
+      _rasti = rastiResult;
+      _isMeasuring = false;
+      _status = 'Measurement Complete';
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        children: [
+          const Icon(Icons.record_voice_over, size: 80, color: Colors.purple),
+          const SizedBox(height: 24),
+          const Text(
+            'Speech Transmission Index (RASTI)',
+            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(_status, style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 40),
+          
+          if (_rasti != null) ...[
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: CircularProgressIndicator(
+                    value: _rasti,
+                    strokeWidth: 15,
+                    backgroundColor: Colors.grey[900],
+                    color: _getRastiColor(_rasti!),
+                  ),
+                ),
+                Column(
+                  children: [
+                    Text(
+                      _rasti!.toStringAsFixed(2),
+                      style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      _getRastiQualitiy(_rasti!),
+                      style: TextStyle(color: _getRastiColor(_rasti!), fontSize: 18, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
-        );
-      },
+          
+          const SizedBox(height: 60),
+          
+          ElevatedButton.icon(
+            onPressed: _isMeasuring ? null : _startMeasurement,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+            ),
+            icon: _isMeasuring 
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              : const Icon(Icons.play_arrow),
+            label: Text(_isMeasuring ? 'MEASURING...' : 'START RASTI TEST'),
+          ),
+          
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('How to test:', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                SizedBox(height: 8),
+                Text('1. Stay quiet for the noise floor measurement.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text('2. Make a loud clap when prompted.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text('3. The app calculates speech intelligibility based on echo and noise.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Color _getRastiColor(double val) {
+    if (val < 0.3) return Colors.red;
+    if (val < 0.45) return Colors.orange;
+    if (val < 0.6) return Colors.yellow;
+    if (val < 0.75) return Colors.lightGreen;
+    return Colors.green;
+  }
+
+  String _getRastiQualitiy(double val) {
+    if (val < 0.3) return "Bad";
+    if (val < 0.45) return "Poor";
+    if (val < 0.6) return "Fair";
+    if (val < 0.75) return "Good";
+    return "Excellent";
   }
 }
