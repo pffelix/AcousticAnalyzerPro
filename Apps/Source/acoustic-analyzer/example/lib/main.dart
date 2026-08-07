@@ -85,6 +85,7 @@ class _MainScreenState extends State<MainScreen> {
         children: const [
           SpectrogramPage(),
           SplMeterPage(),
+          RtaPage(),
           Rt60Page(),
           RastiPage(),
         ],
@@ -96,9 +97,10 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(switch (_selectedIndex) {
           0 => 'Spectrogram',
-          1 => 'SPL Meter',
-          2 => 'RT60 Prediction',
-          3 => 'RASTI Calculation',
+          1 => 'SLM (Sound Level Meter)',
+          2 => '1/3 Octave RTA',
+          3 => 'RT60 Prediction',
+          4 => 'RASTI Calculation',
           _ => '',
         }),
         backgroundColor: Colors.grey[900],
@@ -113,22 +115,11 @@ class _MainScreenState extends State<MainScreen> {
         type: BottomNavigationBarType.fixed,
         onTap: (index) => setState(() => _selectedIndex = index),
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.waves),
-            label: 'Spectrogram',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.equalizer),
-            label: 'SPL Meter',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.timer),
-            label: 'RT60',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.record_voice_over),
-            label: 'RASTI',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.waves), label: 'Spectro'),
+          BottomNavigationBarItem(icon: Icon(Icons.equalizer), label: 'SLM'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'RTA'),
+          BottomNavigationBarItem(icon: Icon(Icons.timer), label: 'RT60'),
+          BottomNavigationBarItem(icon: Icon(Icons.record_voice_over), label: 'RASTI'),
         ],
       ),
     );
@@ -136,7 +127,6 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class SpectrogramPage extends StatefulWidget {
-// ... existing SpectrogramPage ...
   const SpectrogramPage({super.key});
 
   @override
@@ -192,6 +182,7 @@ class SplMeterPage extends StatefulWidget {
 
 class _SplMeterPageState extends State<SplMeterPage> {
   double _db = -100.0;
+  double _peak = -100.0;
   Timer? _timer;
   final _cal = CalibrationManager.instance;
 
@@ -202,8 +193,11 @@ class _SplMeterPageState extends State<SplMeterPage> {
       if (!mounted) return;
       
       final fft = Recorder.instance.getFft(alwaysReturnData: true);
+      final current = _cal.calculateSpl(fft, kSampleRate);
+      
       setState(() {
-        _db = _cal.calculateSpl(fft, kSampleRate);
+        _db = current;
+        if (current > _peak) _peak = current;
       });
     });
   }
@@ -214,70 +208,54 @@ class _SplMeterPageState extends State<SplMeterPage> {
     super.dispose();
   }
 
+  void _resetPeak() {
+    setState(() => _peak = -100.0);
+    _cal.resetAveraging();
+  }
+
   void _showCalibrationDialog() {
     final controller = TextEditingController(text: _cal.referenceOffset.toString());
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('SPL Calibration'),
+        title: const Text('Calibration & Correction'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Set reference offset to match a known SPL source (e.g. 94dB calibrator).'),
             TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Manual Reference Offset (dB)'),
+              decoration: const InputDecoration(labelText: 'Reference Offset (dB)'),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: () {
-                // To calibrate to 94dB:
-                // current_db = dbfs + old_offset
-                // we want: 94 = dbfs + new_offset
-                // so: new_offset = 94 - dbfs
-                // dbfs = current_db - old_offset
                 final dbfs = _db - _cal.referenceOffset;
                 final newOffset = 94.0 - dbfs;
                 setState(() {
                   _cal.referenceOffset = newOffset;
                   controller.text = newOffset.toStringAsFixed(1);
                 });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Calibrated to 94.0 dB')),
-                );
               },
               icon: const Icon(Icons.auto_fix_high),
               label: const Text('Auto-Calibrate to 94.0 dB'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                // Sample calibration data: +5dB at 100Hz, -3dB at 10kHz
-                const sampleCal = "100 5.0\n1000 0.0\n10000 -3.0";
-                _cal.loadCalibrationData(sampleCal);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sample Calibration Loaded')),
-                );
-              },
-              child: const Text('Load Sample .cal Data'),
+            const SizedBox(height: 24),
+            const Divider(),
+            SwitchListTile(
+              title: const Text('Free-field Correction'),
+              subtitle: const Text('Compensates for high-frequency pressure build-up.'),
+              value: _cal.isFreeFieldCorrectionEnabled,
+              onChanged: (val) => setState(() => _cal.isFreeFieldCorrectionEnabled = val),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              final val = double.tryParse(controller.text);
-              if (val != null) {
-                setState(() => _cal.referenceOffset = val);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+          TextButton(onPressed: () {
+            _cal.referenceOffset = double.tryParse(controller.text) ?? _cal.referenceOffset;
+            Navigator.pop(context);
+          }, child: const Text('Save')),
         ],
       ),
     );
@@ -285,91 +263,169 @@ class _SplMeterPageState extends State<SplMeterPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Standard SPL range: 30dB (very quiet) to 120dB (painful)
     final double normalized = ((_db - 30) / (120 - 30)).clamp(0.0, 1.0);
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text('Weighting: ', style: TextStyle(color: Colors.white70)),
-                ChoiceChip(
-                  label: const Text('Z (None)'),
-                  selected: !_cal.isAWeightingEnabled,
-                  onSelected: (val) => setState(() => _cal.isAWeightingEnabled = !val),
-                ),
-                const SizedBox(width: 10),
-                ChoiceChip(
-                  label: const Text('A-Weight'),
-                  selected: _cal.isAWeightingEnabled,
-                  onSelected: (val) => setState(() => _cal.isAWeightingEnabled = val),
-                ),
+                _weightingToggle(),
+                const SizedBox(width: 20),
+                _timeWeightingToggle(),
               ],
             ),
             const SizedBox(height: 40),
             Text(
-              '${_db.toStringAsFixed(1)} dB(${_cal.isAWeightingEnabled ? 'A' : 'Z'})',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 64,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'Courier',
-              ),
+              '${_db.toStringAsFixed(1)}',
+              style: const TextStyle(color: Colors.white, fontSize: 90, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+            ),
+            Text(
+              'dB(${_cal.currentWeighting.name.toUpperCase()}) ${_cal.currentTimeWeighting.name.toUpperCase()}',
+              style: const TextStyle(color: Colors.blue, fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 40),
-            // Visual Meter
-            Stack(
-              children: [
-                Container(
-                  height: 40,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[900],
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white10),
-                  ),
-                ),
-                FractionallySizedBox(
-                  widthFactor: normalized,
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.green.withOpacity(0.8),
-                          Colors.yellow.withOpacity(0.8),
-                          Colors.red.withOpacity(0.8),
-                        ],
-                        stops: const [0.6, 0.8, 1.0],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('30 dB', style: TextStyle(color: Colors.white54)),
-                Text('120 dB', style: TextStyle(color: Colors.white54)),
-              ],
-            ),
+            _buildMeter(normalized),
             const SizedBox(height: 40),
-            ElevatedButton.icon(
-              onPressed: _showCalibrationDialog,
-              icon: const Icon(Icons.settings_input_antenna),
-              label: const Text('Calibration Settings'),
+            _buildStats(),
+            const SizedBox(height: 40),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(onPressed: _resetPeak, icon: const Icon(Icons.refresh), label: const Text('Reset')),
+                const SizedBox(width: 20),
+                ElevatedButton.icon(onPressed: _showCalibrationDialog, icon: const Icon(Icons.settings), label: const Text('Settings')),
+              ],
             ),
+            const SizedBox(height: 20),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _weightingToggle() {
+    return ToggleButtons(
+      isSelected: [
+        _cal.currentWeighting == WeightingType.z,
+        _cal.currentWeighting == WeightingType.a,
+        _cal.currentWeighting == WeightingType.c,
+      ],
+      onPressed: (index) => setState(() => _cal.currentWeighting = WeightingType.values[index]),
+      color: Colors.white54,
+      selectedColor: Colors.white,
+      fillColor: Colors.blue.withOpacity(0.3),
+      children: const [Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Z')), Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('A')), Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('C'))],
+    );
+  }
+
+  Widget _timeWeightingToggle() {
+    return ToggleButtons(
+      isSelected: [
+        _cal.currentTimeWeighting == TimeWeighting.fast,
+        _cal.currentTimeWeighting == TimeWeighting.slow,
+      ],
+      onPressed: (index) => setState(() => _cal.currentTimeWeighting = TimeWeighting.values[index]),
+      color: Colors.white54,
+      selectedColor: Colors.white,
+      fillColor: Colors.orange.withOpacity(0.3),
+      children: const [Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('FAST')), Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('SLOW'))],
+    );
+  }
+
+  Widget _buildMeter(double normalized) {
+    return Container(
+      width: 300,
+      height: 30,
+      decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(15)),
+      child: Stack(
+        children: [
+          FractionallySizedBox(
+            widthFactor: normalized,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Colors.green, Colors.yellow, Colors.red], stops: [0.5, 0.8, 1.0]),
+                borderRadius: BorderRadius.circular(15),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStats() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _statItem('Lmax', _peak),
+        _statItem('Leq', _cal.getLeq()),
+      ],
+    );
+  }
+
+  Widget _statItem(String label, double value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 14)),
+        Text(value > -100 ? value.toStringAsFixed(1) : '---', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+}
+
+class RtaPage extends StatefulWidget {
+  const RtaPage({super.key});
+
+  @override
+  State<RtaPage> createState() => _RtaPageState();
+}
+
+class _RtaPageState extends State<RtaPage> {
+  Timer? _timer;
+  final _cal = CalibrationManager.instance;
+  final List<double> _maxHold = List.filled(31, -100.0);
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (!mounted) return;
+      final fft = Recorder.instance.getFft(alwaysReturnData: true);
+      _cal.calculateSpl(fft, kSampleRate);
+      setState(() {
+        for (int i = 0; i < _cal.octaveBands.length; i++) {
+          if (_cal.octaveBands[i].value > _maxHold[i]) _maxHold[i] = _cal.octaveBands[i].value;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('1/3 Octave RTA (${_cal.currentWeighting.name.toUpperCase()})', style: const TextStyle(color: Colors.white70)),
+              IconButton(onPressed: () => setState(() => _maxHold.fillRange(0, 31, -100.0)), icon: const Icon(Icons.refresh, color: Colors.blue)),
+            ],
+          ),
+        ),
+        Expanded(child: Padding(padding: const EdgeInsets.all(8.0), child: CustomPaint(painter: RtaPainter(bands: _cal.octaveBands, maxHold: _maxHold), size: Size.infinite))),
+      ],
     );
   }
 }
@@ -377,72 +433,34 @@ class _SplMeterPageState extends State<SplMeterPage> {
 class SpectrogramPainter extends CustomPainter {
   final List<Float32List> history;
   final _cal = CalibrationManager.instance;
-
   SpectrogramPainter({required this.history});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (history.isEmpty) return;
-
     const double labelWidth = 55.0;
     final double drawingWidth = size.width - labelWidth;
     final double stepX = drawingWidth / history.length;
-    final double stepY = size.height / 256; // 256 frequency bins
+    final double stepY = size.height / 256;
     final double binWidth = (kSampleRate / 2.0) / 256.0;
 
-    final paint = Paint();
-
-    // 1. Draw Spectrogram Data
     for (int t = 0; t < history.length; t++) {
       final fft = history[t];
       for (int f = 0; f < fft.length; f++) {
         final freq = f * binWidth;
-        final calOffset = _cal.getOffsetForFrequency(freq);
-        
-        final gain = math.pow(10, calOffset / 20.0);
+        final gain = math.pow(10, _cal.getOffsetForFrequency(freq) / 20.0);
         final double magnitude = (fft[f] * gain).clamp(0.0, 1.0);
-        
-        paint.color = _getHeatmapColor(magnitude);
-
-        canvas.drawRect(
-          Rect.fromLTWH(
-            labelWidth + drawingWidth - (t * stepX) - stepX,
-            size.height - (f * stepY) - stepY,
-            stepX + 0.5,
-            stepY + 0.5,
-          ),
-          paint,
-        );
+        canvas.drawRect(Rect.fromLTWH(labelWidth + drawingWidth - (t * stepX) - stepX, size.height - (f * stepY) - stepY, stepX + 0.5, stepY + 0.5), Paint()..color = _getHeatmapColor(magnitude));
       }
     }
 
-    // 2. Draw Frequency Axis (Labels and Grid)
-    final textStyle = TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold);
-    final linePaint = Paint()..color = Colors.white24..strokeWidth = 1;
-
+    final textStyle = const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold);
     final List<int> labels = [100, 500, 1000, 2000, 5000, 10000, 15000, 20000];
-    
     for (final hz in labels) {
       final double y = size.height - (hz / (kSampleRate / 2.0) * size.height);
-      
-      // Draw grid line
-      canvas.drawLine(Offset(labelWidth, y), Offset(size.width, y), linePaint);
-
-      // Draw label
-      final tp = TextPainter(
-        text: TextSpan(text: hz >= 1000 ? '${(hz / 1000).toStringAsFixed(0)}k' : '$hz', style: textStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      
-      tp.paint(canvas, Offset(labelWidth - tp.width - 5, y - (tp.height / 2)));
+      canvas.drawLine(Offset(labelWidth, y), Offset(size.width, y), Paint()..color = Colors.white10);
+      TextPainter(text: TextSpan(text: hz >= 1000 ? '${(hz / 1000).toStringAsFixed(0)}k' : '$hz', style: textStyle), textDirection: TextDirection.ltr)..layout()..paint(canvas, Offset(labelWidth - 45, y - 6));
     }
-
-    // Y-Axis title
-    final titleTp = TextPainter(
-      text: const TextSpan(text: 'Hz', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    titleTp.paint(canvas, Offset(5, 5));
   }
 
   Color _getHeatmapColor(double magnitude) {
@@ -452,16 +470,48 @@ class SpectrogramPainter extends CustomPainter {
     if (magnitude < 0.8) return Color.lerp(Colors.green, Colors.yellow, (magnitude - 0.5) / 0.3)!;
     return Color.lerp(Colors.yellow, Colors.red, (magnitude - 0.8) / 0.2)!;
   }
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class RtaPainter extends CustomPainter {
+  final List<OctaveBand> bands;
+  final List<double> maxHold;
+  RtaPainter({required this.bands, required this.maxHold});
 
   @override
-  bool shouldRepaint(covariant SpectrogramPainter oldDelegate) => true;
+  void paint(Canvas canvas, Size size) {
+    const double labelHeight = 30.0;
+    const double labelWidth = 40.0;
+    final double chartHeight = size.height - labelHeight;
+    final double chartWidth = size.width - labelWidth;
+    final double barWidth = chartWidth / bands.length;
+
+    for (int db = 30; db <= 120; db += 10) {
+      final double y = chartHeight - ((db - 30) / (120 - 30) * chartHeight);
+      canvas.drawLine(Offset(labelWidth, y), Offset(size.width, y), Paint()..color = Colors.white10);
+      TextPainter(text: TextSpan(text: '$db', style: const TextStyle(color: Colors.white54, fontSize: 8)), textDirection: TextDirection.ltr)..layout()..paint(canvas, Offset(5, y - 5));
+    }
+
+    for (int i = 0; i < bands.length; i++) {
+      final double x = labelWidth + (i * barWidth);
+      final double h = ((bands[i].value - 30) / (120 - 30) * chartHeight).clamp(0, chartHeight);
+      canvas.drawRect(Rect.fromLTWH(x + 1, chartHeight - h, barWidth - 2, h), Paint()..color = _getBarColor(bands[i].value));
+      final double maxH = ((maxHold[i] - 30) / (120 - 30) * chartHeight).clamp(0, chartHeight);
+      canvas.drawLine(Offset(x + 1, chartHeight - maxH), Offset(x + barWidth - 1, chartHeight - maxH), Paint()..color = Colors.red..strokeWidth = 1);
+      if (i % 3 == 0) {
+        final label = bands[i].centerFreq >= 1000 ? '${(bands[i].centerFreq / 1000).toStringAsFixed(0)}k' : bands[i].centerFreq.toInt().toString();
+        TextPainter(text: TextSpan(text: label, style: const TextStyle(color: Colors.white54, fontSize: 8)), textDirection: TextDirection.ltr)..layout()..paint(canvas, Offset(x, chartHeight + 5));
+      }
+    }
+  }
+
+  Color _getBarColor(double db) => db < 50 ? Colors.blue : (db < 80 ? Colors.green : (db < 100 ? Colors.yellow : Colors.red));
+  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class Rt60Page extends StatefulWidget {
   const Rt60Page({super.key});
-
-  @override
-  State<Rt60Page> createState() => _Rt60PageState();
+  @override State<Rt60Page> createState() => _Rt60PageState();
 }
 
 class _Rt60PageState extends State<Rt60Page> {
@@ -470,35 +520,18 @@ class _Rt60PageState extends State<Rt60Page> {
   double? _rt60;
   bool _isListening = false;
 
-  // Settings
-  final double _triggerThreshold = -25.0; // Trigger when sound is louder than this
-  final double _noiseFloor = -60.0; // Stop measuring when it hits noise
-
   void _toggleListening() {
     setState(() {
       _isListening = !_isListening;
-      if (_isListening) {
-        _status = 'Listening for impulse (clap)...';
-        _rt60 = null;
-        _startMonitoring();
-      } else {
-        _status = 'Ready';
-        _timer?.cancel();
-      }
+      if (_isListening) { _status = 'Listening for impulse...'; _rt60 = null; _startMonitoring(); }
+      else { _status = 'Ready'; _timer?.cancel(); }
     });
   }
 
   void _startMonitoring() {
-    _timer?.cancel();
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
       if (!mounted) return;
-
-      final double currentDb = Recorder.instance.getVolumeDb();
-
-      if (currentDb > _triggerThreshold) {
-        timer.cancel();
-        _recordDecay();
-      }
+      if (Recorder.instance.getVolumeDb() > -25.0) { timer.cancel(); _recordDecay(); }
     });
   }
 
@@ -506,139 +539,41 @@ class _Rt60PageState extends State<Rt60Page> {
     setState(() => _status = 'Recording decay...');
     final List<double> values = [];
     final DateTime start = DateTime.now();
-
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      final double currentDb = Recorder.instance.getVolumeDb();
-      values.add(currentDb);
-
-      // Stop after 1.5 seconds
-      if (DateTime.now().difference(start).inMilliseconds > 1500) {
-        timer.cancel();
-        _calculateRt60(values);
-      }
+      values.add(Recorder.instance.getVolumeDb());
+      if (DateTime.now().difference(start).inMilliseconds > 1500) { timer.cancel(); _calculateRt60(values); }
     });
   }
 
   void _calculateRt60(List<double> values) {
-    if (values.isEmpty) return;
-
-    // Find the peak
-    double peak = -100.0;
+    if (values.length < 5) return;
     int peakIndex = 0;
-    for (int i = 0; i < values.length; i++) {
-      if (values[i] > peak) {
-        peak = values[i];
-        peakIndex = i;
-      }
-    }
-
-    // Filter data from peak until it drops by 20dB or hits noise floor
+    for (int i = 0; i < values.length; i++) if (values[i] > values[peakIndex]) peakIndex = i;
     final List<double> decayPoints = [];
-    for (int i = peakIndex; i < values.length; i++) {
-      decayPoints.add(values[i]);
-      if (values[i] < peak - 20 || values[i] < _noiseFloor) break;
-    }
-
-    if (decayPoints.length < 5) {
-      setState(() {
-        _status = 'Signal too short. Try a louder clap.';
-        _isListening = false;
-      });
-      return;
-    }
-
-    // Simple Linear Regression for slope (dB per sample)
+    for (int i = peakIndex; i < values.length; i++) { decayPoints.add(values[i]); if (values[i] < values[peakIndex] - 20) break; }
     double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
     int n = decayPoints.length;
-    for (int i = 0; i < n; i++) {
-      sumX += i;
-      sumY += decayPoints[i];
-      sumXY += i * decayPoints[i];
-      sumXX += i * i;
-    }
-
-    double denominator = (n * sumXX - sumX * sumX);
-    if (denominator == 0) return;
-    double slope = (n * sumXY - sumX * sumY) / denominator;
-
-    if (slope >= 0) {
-      setState(() {
-        _status = 'Invalid decay slope detected.';
-        _isListening = false;
-      });
-      return;
-    }
-
-    // RT60 = (60 / |slope|) * 10ms
-    double rt60Result = (60.0 / slope.abs()) * 0.01;
-
-    setState(() {
-      _rt60 = rt60Result;
-      _status = 'Measurement Complete';
-      _isListening = false;
-    });
+    for (int i = 0; i < n; i++) { sumX += i; sumY += decayPoints[i]; sumXY += i * decayPoints[i]; sumXX += i * i; }
+    double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    if (slope < 0) setState(() { _rt60 = (60.0 / slope.abs()) * 0.01; _status = 'Done'; _isListening = false; });
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const Icon(Icons.av_timer, size: 80, color: Colors.blue),
-          const SizedBox(height: 24),
-          Text(_status, style: const TextStyle(color: Colors.white70, fontSize: 16)),
-          const SizedBox(height: 40),
-          if (_rt60 != null) ...[
-            const Text('Estimated RT60', style: TextStyle(color: Colors.white54, fontSize: 14)),
-            Text('${_rt60!.toStringAsFixed(2)}s',
-                style: const TextStyle(color: Colors.blue, fontSize: 72, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            Text(_getRoomDescription(_rt60!), style: const TextStyle(color: Colors.green, fontSize: 18)),
-          ],
-          const SizedBox(height: 60),
-          ElevatedButton.icon(
-            onPressed: _toggleListening,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _isListening ? Colors.red : Colors.blue,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-            ),
-            icon: Icon(_isListening ? Icons.stop : Icons.mic),
-            label: Text(_isListening ? 'STOP' : 'START LISTENING'),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Tip: Press start and make a loud impulse (clap or pop a balloon) to measure reverb.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white38, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getRoomDescription(double rt) {
-    if (rt < 0.3) return "Very Dry (Recording Studio)";
-    if (rt < 0.6) return "Dry (Living Room)";
-    if (rt < 1.0) return "Normal (Office/Classroom)";
-    if (rt < 1.5) return "Live (Large Hall)";
-    return "Very Reverberant (Cathedral/Empty Warehouse)";
+  @override void dispose() { _timer?.cancel(); super.dispose(); }
+  @override Widget build(BuildContext context) {
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      const Icon(Icons.timer, size: 80, color: Colors.blue),
+      const SizedBox(height: 24),
+      Text(_status, style: const TextStyle(color: Colors.white70)),
+      if (_rt60 != null) Text('${_rt60!.toStringAsFixed(2)}s', style: const TextStyle(color: Colors.blue, fontSize: 72, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 40),
+      ElevatedButton(onPressed: _toggleListening, child: Text(_isListening ? 'STOP' : 'START')),
+    ]));
   }
 }
 
 class RastiPage extends StatefulWidget {
   const RastiPage({super.key});
-
-  @override
-  State<RastiPage> createState() => _RastiPageState();
+  @override State<RastiPage> createState() => _RastiPageState();
 }
 
 class _RastiPageState extends State<RastiPage> {
@@ -646,210 +581,58 @@ class _RastiPageState extends State<RastiPage> {
   String _status = 'Ready';
   double? _rasti;
   bool _isMeasuring = false;
-  
-  // RASTI standard modulation frequencies
-  final List<double> _modFreqs = [0.7, 1.0, 1.4, 2.0, 2.8, 4.0, 5.6, 8.0, 11.2];
 
   void _startMeasurement() {
-    setState(() {
-      _isMeasuring = true;
-      _status = 'Step 1: Measuring ambient noise...';
-    });
-
-    // 1. Measure background noise for 1 second to get SNR baseline
-    double noiseSum = 0;
-    int noiseCount = 0;
-    
+    setState(() { _isMeasuring = true; _status = 'Measuring Noise...'; });
+    int count = 0; double noiseSum = 0;
     _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       noiseSum += Recorder.instance.getVolumeDb();
-      noiseCount++;
-      
-      if (noiseCount >= 20) { // 1 second
-        timer.cancel();
-        double avgNoise = noiseSum / noiseCount;
-        _listenForImpulse(avgNoise);
-      }
+      if (++count >= 20) { timer.cancel(); _listenForImpulse(noiseSum / 20); }
     });
   }
 
   void _listenForImpulse(double noiseFloor) {
-    setState(() => _status = 'Step 2: Listening for loud impulse (clap)...');
-    
+    setState(() => _status = 'Wait for clap...');
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      final double currentDb = Recorder.instance.getVolumeDb();
-      
-      if (currentDb > noiseFloor + 25) { // Significant impulse detected
-        timer.cancel();
-        _recordDecay(noiseFloor, currentDb);
-      }
+      if (Recorder.instance.getVolumeDb() > noiseFloor + 25) { timer.cancel(); _recordDecay(noiseFloor, Recorder.instance.getVolumeDb()); }
     });
   }
 
   void _recordDecay(double noiseFloor, double peakDb) {
-    setState(() => _status = 'Step 3: Calculating decay and MTF...');
-    final List<double> decayValues = [];
+    setState(() => _status = 'Analyzing...');
+    final List<double> decay = [];
     final DateTime start = DateTime.now();
-    
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      decayValues.add(Recorder.instance.getVolumeDb());
-      
-      if (DateTime.now().difference(start).inMilliseconds > 1200) {
-        timer.cancel();
-        _computeRasti(decayValues, noiseFloor, peakDb);
-      }
+      decay.add(Recorder.instance.getVolumeDb());
+      if (DateTime.now().difference(start).inMilliseconds > 1200) { timer.cancel(); _computeRasti(decay, noiseFloor, peakDb); }
     });
   }
 
   void _computeRasti(List<double> decay, double noiseFloor, double peakDb) {
-    // 1. Calculate RT60 from decay (Simple slope)
     double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    int n = decay.length > 50 ? 50 : decay.length; // First 500ms
-    for (int i = 0; i < n; i++) {
-      sumX += i;
-      sumY += decay[i];
-      sumXY += i * decay[i];
-      sumXX += i * i;
-    }
+    int n = math.min(50, decay.length);
+    for (int i = 0; i < n; i++) { sumX += i; sumY += decay[i]; sumXY += i * decay[i]; sumXX += i * i; }
     double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
     double rt60 = (60.0 / slope.abs()) * 0.01;
-    
-    // 2. Calculate effective SNR
-    // We assume the signal (speech) would be around 65dB in a real scenario,
-    // but here we use the measured peak vs noise for the specific room state.
     double snr = peakDb - noiseFloor;
-
-    // 3. Calculate Transmission Index (TI) for each modulation frequency
-    List<double> tis = [];
-    for (double fm in _modFreqs) {
-      // Modulation Transfer Function due to reverberation
+    double tiSum = 0;
+    for (double fm in [0.7, 1.0, 1.4, 2.0, 2.8, 4.0, 5.6, 8.0, 11.2]) {
       double mRev = 1.0 / math.sqrt(1.0 + math.pow(2 * math.pi * fm * rt60 / 13.8, 2));
-      
-      // Modulation Transfer Function due to noise
       double mNoise = 1.0 / (1.0 + math.pow(10, -snr / 10.0));
-      
-      double mTotal = mRev * mNoise;
-      
-      // Convert to Apparent SNR
-      double snrApp = 10.0 * math.log(mTotal / (1.0 - mTotal).clamp(0.0001, 1.0)) / math.ln10;
-      
-      // Clip to [-15, 15] range and normalize to [0, 1]
-      double ti = (snrApp + 15.0) / 30.0;
-      tis.add(ti.clamp(0.0, 1.0));
+      double snrApp = 10.0 * math.log((mRev * mNoise) / (1.0 - mRev * mNoise).clamp(0.0001, 1.0)) / math.ln10;
+      tiSum += ((snrApp + 15.0) / 30.0).clamp(0.0, 1.0);
     }
-
-    // 4. RASTI is the arithmetic mean of TI values
-    double rastiResult = tis.reduce((a, b) => a + b) / tis.length;
-
-    setState(() {
-      _rasti = rastiResult;
-      _isMeasuring = false;
-      _status = 'Measurement Complete';
-    });
+    setState(() { _rasti = tiSum / 9; _isMeasuring = false; _status = 'Complete'; });
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        children: [
-          const Icon(Icons.record_voice_over, size: 80, color: Colors.purple),
-          const SizedBox(height: 24),
-          const Text(
-            'Speech Transmission Index (RASTI)',
-            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(_status, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 40),
-          
-          if (_rasti != null) ...[
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 200,
-                  height: 200,
-                  child: CircularProgressIndicator(
-                    value: _rasti,
-                    strokeWidth: 15,
-                    backgroundColor: Colors.grey[900],
-                    color: _getRastiColor(_rasti!),
-                  ),
-                ),
-                Column(
-                  children: [
-                    Text(
-                      _rasti!.toStringAsFixed(2),
-                      style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      _getRastiQualitiy(_rasti!),
-                      style: TextStyle(color: _getRastiColor(_rasti!), fontSize: 18, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-          
-          const SizedBox(height: 60),
-          
-          ElevatedButton.icon(
-            onPressed: _isMeasuring ? null : _startMeasurement,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purple,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-            ),
-            icon: _isMeasuring 
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Icon(Icons.play_arrow),
-            label: Text(_isMeasuring ? 'MEASURING...' : 'START RASTI TEST'),
-          ),
-          
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('How to test:', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                SizedBox(height: 8),
-                Text('1. Stay quiet for the noise floor measurement.', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                Text('2. Make a loud clap when prompted.', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                Text('3. The app calculates speech intelligibility based on echo and noise.', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getRastiColor(double val) {
-    if (val < 0.3) return Colors.red;
-    if (val < 0.45) return Colors.orange;
-    if (val < 0.6) return Colors.yellow;
-    if (val < 0.75) return Colors.lightGreen;
-    return Colors.green;
-  }
-
-  String _getRastiQualitiy(double val) {
-    if (val < 0.3) return "Bad";
-    if (val < 0.45) return "Poor";
-    if (val < 0.6) return "Fair";
-    if (val < 0.75) return "Good";
-    return "Excellent";
+  @override void dispose() { _timer?.cancel(); super.dispose(); }
+  @override Widget build(BuildContext context) {
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      const Icon(Icons.record_voice_over, size: 80, color: Colors.purple),
+      Text(_status, style: const TextStyle(color: Colors.white70)),
+      if (_rasti != null) Text(_rasti!.toStringAsFixed(2), style: const TextStyle(color: Colors.purple, fontSize: 72, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 40),
+      ElevatedButton(onPressed: _isMeasuring ? null : _startMeasurement, child: const Text('TEST RASTI')),
+    ]));
   }
 }
