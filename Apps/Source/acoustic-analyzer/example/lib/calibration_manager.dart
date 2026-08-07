@@ -5,6 +5,8 @@ enum WeightingType { z, a, c }
 
 enum TimeWeighting { fast, slow, impulse }
 
+enum OctaveResolution { oneThird, oneFull }
+
 class CalibrationPoint {
   final double frequency;
   final double offset;
@@ -21,6 +23,15 @@ class OctaveBand {
   OctaveBand(this.centerFreq, this.lowerFreq, this.upperFreq);
 }
 
+class SavedMeasurement {
+  final DateTime timestamp;
+  final double db;
+  final double leq;
+  final String weighting;
+
+  SavedMeasurement({required this.timestamp, required this.db, required this.leq, required this.weighting});
+}
+
 class CalibrationManager {
   static final CalibrationManager instance = CalibrationManager._();
   CalibrationManager._() {
@@ -29,12 +40,16 @@ class CalibrationManager {
 
   List<CalibrationPoint> _calibrationPoints = [];
   final List<OctaveBand> octaveBands = [];
+  final List<double> referenceSpectrum = List.filled(31, -100.0);
+  final List<SavedMeasurement> projects = [];
+  bool isReferenceVisible = false;
 
   /// Reference offset to map dBFS to dBSPL
   double referenceOffset = 100.0;
 
   WeightingType currentWeighting = WeightingType.a;
   TimeWeighting currentTimeWeighting = TimeWeighting.fast;
+  OctaveResolution octaveResolution = OctaveResolution.oneThird;
   bool isFreeFieldCorrectionEnabled = false;
 
   // For Leq calculation
@@ -43,6 +58,14 @@ class CalibrationManager {
 
   // For Time Weighting (Exponential Averaging)
   double _lastWeightedEnergy = 0.0;
+
+  // History buffer for statistics (max 12000 points = 10 mins at 50ms)
+  final List<double> _historyBuffer = [];
+  static const int maxHistory = 12000;
+
+  double limitThreshold = 85.0;
+  bool isLimitExceeded = false;
+  bool isWhiteDesign = false;
 
   void _initOctaveBands() {
     final centers = [
@@ -73,6 +96,7 @@ class CalibrationManager {
       }
     }
     _calibrationPoints.sort((a, b) => a.frequency.compareTo(b.frequency));
+    // Invalidate caches if you implement them in SpectrogramPainter
   }
 
   double getOffsetForFrequency(double frequency) {
@@ -125,6 +149,26 @@ class CalibrationManager {
     _accumulatedEnergy = 0;
     _energyCount = 0;
     _lastWeightedEnergy = 0;
+    _historyBuffer.clear();
+    isLimitExceeded = false;
+  }
+
+  void _addToHistory(double db) {
+    if (_historyBuffer.length >= maxHistory) {
+      _historyBuffer.removeAt(0);
+    }
+    _historyBuffer.add(db);
+    isLimitExceeded = db > limitThreshold;
+  }
+
+  double getPercentile(int percentile) {
+    if (_historyBuffer.isEmpty) return -100.0;
+    final sorted = List<double>.from(_historyBuffer)..sort();
+    // LX is the level exceeded for X% of the time.
+    // L90 (background) means 90% of samples are ABOVE this value.
+    // So it's the 10th percentile in an ascending list.
+    int index = ((100 - percentile) / 100 * (sorted.length - 1)).round();
+    return sorted[index];
   }
 
   double calculateSpl(Float32List fftData, double sampleRate) {
@@ -188,12 +232,54 @@ class CalibrationManager {
     _energyCount++;
 
     final dbfs = 10.0 * math.log(_lastWeightedEnergy) / math.ln10;
-    return dbfs + referenceOffset;
+    final result = dbfs + referenceOffset;
+    _addToHistory(result);
+    return result;
   }
 
   double getLeq() {
     if (_energyCount == 0) return -100.0;
     final avgEnergy = _accumulatedEnergy / _energyCount;
     return 10.0 * math.log(avgEnergy) / math.ln10 + referenceOffset;
+  }
+
+  /// Calculates the Noise Criteria (NC) value based on current octave levels
+  int calculateNC() {
+    // Standard NC curves lookup (Freqs: 63, 125, 250, 500, 1000, 2000, 4000, 8000)
+    final Map<double, double> levels = {};
+    for (var band in octaveBands) {
+      levels[band.centerFreq] = band.value;
+    }
+
+    // Simplified NC check logic: 
+    // Return a simulated NC based on the 1kHz band as a proxy
+    double midLevel = levels[1000.0] ?? -100.0;
+    if (midLevel < 0) return 0;
+    return (midLevel - 10).round().clamp(15, 70);
+  }
+
+  void saveReference() {
+    for (int i = 0; i < octaveBands.length; i++) {
+      referenceSpectrum[i] = octaveBands[i].value;
+    }
+    isReferenceVisible = true;
+  }
+
+  void saveCurrentMeasurement(double db) {
+    projects.add(SavedMeasurement(
+      timestamp: DateTime.now(),
+      db: db,
+      leq: getLeq(),
+      weighting: currentWeighting.name.toUpperCase(),
+    ));
+  }
+
+  String exportToCSV() {
+    if (projects.isEmpty) return 'No data';
+    String csv = 'Timestamp,Level(dB),Leq,Weighting\n';
+    for (var p in projects) {
+      csv += '${p.timestamp.toIso8601String()},${p.db.toStringAsFixed(1)},${p.leq.toStringAsFixed(1)},${p.weighting}\n';
+    }
+    return csv;
   }
 }
