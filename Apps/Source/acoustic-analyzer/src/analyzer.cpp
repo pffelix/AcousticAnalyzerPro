@@ -29,9 +29,10 @@ Analyzer::~Analyzer() = default;
 /// Blackman windowing (used by ShaderToy).
 void Analyzer::blackmanWindow(float *samples, const float *waveData) const
 {
-    memset(samples + 512, 0, 512 * sizeof(float));
+    // Zero out the entire 1024-float buffer (512 complex samples)
+    memset(samples, 0, 1024 * sizeof(float));
     for (int i = 0; i < 256; i++) {
-        float multiplier = a0 - a1 * cosf(2 * M_PI * i / mWindowSize) + a2 * cosf(4 * M_PI * i / mWindowSize);
+        float multiplier = a0 - a1 * cosf(2 * M_PI * i / (mWindowSize - 1)) + a2 * cosf(4 * M_PI * i / (mWindowSize - 1));
         samples[i*2] = waveData[i] * multiplier;
         samples[i*2+1] = 0;
     }
@@ -100,47 +101,37 @@ float* Analyzer::calcFFT(float* waveData, float minFrequency, float maxFrequency
     if (waveData == nullptr)
         return nullptr;
 
-    // https://en.wikipedia.org/wiki/Window_function
+    // Use Blackman windowing
     blackmanWindow(temp, waveData);
-    // hanningWindow(temp, waveData);
-    // hammingWindow(temp, waveData);
-    // gaussWindow(temp, waveData);
 
-    FFT::fft1024(temp);
+    // Perform a 512-point complex FFT (requires 1024 floats)
+    // This will give us 256 unique positive frequency bins
+    FFT::fft(temp, 1024);
 
-    float real = temp[255 * 2];
-    float imag = temp[255 * 2 + 1];
-    float mag = sqrtf(real*real+imag*imag);
-    // Apply frequency-dependent scaling
-    float freqScaling = sqrtf(255.f + 1.f);  // Adjust scaling based on frequency bin
-    mag *= freqScaling / 2.0f;  // Normalize the scaling
-    // The "+ 1.0" is to make sure I don't get negative values,
-    float t = 2.f * log10f(mag+1.0f);
-    FFTData[255] = t;
-
-    for (int i = 254; i >= 0; i--)
+    for (int i = 0; i < 256; i++)
     {
         float real = temp[i * 2];
         float imag = temp[i * 2 + 1];
-        float mag = sqrtf(real*real+imag*imag);
+        float mag = sqrtf(real*real + imag*imag);
 
-        // Apply frequency-dependent scaling
-        float freqScaling = sqrtf((float)(i + 1));  // Adjust scaling based on frequency bin
-        mag *= freqScaling / 2.0f;  // Normalize the scaling
+        // Normalize: 2/N for real-to-complex FFT magnitudes
+        mag /= 256.0f;
 
-        // The "+ 1.0" is to make sure I don't get negative values,
-        float t = 2.f * log10f(mag+1.0f) - FFTData[255];
+        // Convert to dB and map to [0, 1] range
+        // We'll use -60dB as the floor (0.0) and 0dB as the ceiling (1.0)
+        float db = 20.0f * log10f(mag + 1e-7f);
+        float t = (db + 60.0f) / 60.0f;
 
         if (t > 1.0f) t = 1.0f;
-        else if (t < 0.001f) t = 0.0f;
-        if (t >= FFTData[i])
+        else if (t < 0.0f) t = 0.0f;
+
+        // Apply smoothing
+        if (t >= FFTData[i]) {
             FFTData[i] = t;
-        else {
-            // smooth when decreasing the new value with the previous
-            FFTData[i] = fftSmoothing * FFTData[i] + (1.0f-fftSmoothing) * t;
+        } else {
+            FFTData[i] = fftSmoothing * FFTData[i] + (1.0f - fftSmoothing) * t;
         }
     }
-    FFTData[255] = 0.0f;
 
     return FFTData;
 }
