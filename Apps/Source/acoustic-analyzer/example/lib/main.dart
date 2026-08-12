@@ -4,6 +4,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flutter_recorder/flutter_recorder.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'calibration_manager.dart';
@@ -34,6 +36,30 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _initRecorder();
+    _initSoLoud();
+  }
+
+  Future<void> _initSoLoud() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.defaultToSpeaker,
+        avAudioSessionMode: AVAudioSessionMode.measurement,
+        androidAudioAttributes: AndroidAudioAttributes(
+          usage: AndroidAudioUsage.voiceCommunication,
+          contentType: AndroidAudioContentType.speech,
+        ),
+      ));
+      await session.setActive(true);
+
+      await SoLoud.instance.init(
+        channels: Channels.mono,
+        sampleRate: 44100,
+      );
+    } catch (e) {
+      debugPrint('SoLoud init error: $e');
+    }
   }
 
   Future<void> _initRecorder() async {
@@ -380,21 +406,21 @@ class _SplMeterPageState extends State<SplMeterPage> {
   @override
   Widget build(BuildContext context) {
     final double normalized = ((_db - 30) / (120 - 30)).clamp(0.0, 1.0);
-    return Container(
+    return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           _buildTopConfig(),
-          const SizedBox(height: 40),
+          const SizedBox(height: 20),
           _buildMainDisplay(),
-          const SizedBox(height: 40),
+          const SizedBox(height: 20),
           _buildProfessionalMeter(normalized),
-          const SizedBox(height: 40),
+          const SizedBox(height: 20),
           _buildStatsGrid(),
-          const Spacer(),
+          const SizedBox(height: 20),
           _buildActionFooter(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -612,8 +638,10 @@ class SpectrogramPainter extends CustomPainter {
       final double x = labelWidth + drawingWidth - (t * stepX) - stepX;
       
       for (int f = 0; f < 256; f++) {
-        // Use cached gain instead of re-calculating offset/pow
-        final double magnitude = (fft[f] * _gainCache![f]).clamp(0.0, 1.0);
+        // Boost quiet sounds using power-law scaling (Gamma correction)
+        // Magnitude 0.4 power significantly increases sensitivity to low-level signals
+        final double rawMagnitude = (fft[f] * _gainCache![f]).clamp(0.0, 1.0);
+        final double magnitude = math.pow(rawMagnitude, 0.4).toDouble();
         
         paint.color = _getHeatmapColor(magnitude);
 
@@ -634,11 +662,11 @@ class SpectrogramPainter extends CustomPainter {
   }
 
   Color _getHeatmapColor(double magnitude) {
-    if (magnitude < 0.1) return Colors.black;
-    if (magnitude < 0.3) return Color.lerp(Colors.black, Colors.blue, (magnitude - 0.1) / 0.2)!;
-    if (magnitude < 0.5) return Color.lerp(Colors.blue, Colors.green, (magnitude - 0.3) / 0.2)!;
-    if (magnitude < 0.8) return Color.lerp(Colors.green, Colors.yellow, (magnitude - 0.5) / 0.3)!;
-    return Color.lerp(Colors.yellow, Colors.red, (magnitude - 0.8) / 0.2)!;
+    if (magnitude < 0.05) return Colors.black;
+    if (magnitude < 0.25) return Color.lerp(Colors.black, Colors.blue, (magnitude - 0.05) / 0.2)!;
+    if (magnitude < 0.5) return Color.lerp(Colors.blue, Colors.green, (magnitude - 0.25) / 0.25)!;
+    if (magnitude < 0.75) return Color.lerp(Colors.green, Colors.yellow, (magnitude - 0.5) / 0.25)!;
+    return Color.lerp(Colors.yellow, Colors.red, (magnitude - 0.75) / 0.25)!;
   }
   @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
@@ -750,8 +778,9 @@ class DecayCurvePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final path = Path();
-    for (int i = 0; i < data.length; i++) {
-      final x = leftMargin + (i / 150.0 * chartWidth);
+    final int count = data.length;
+    for (int i = 0; i < count; i++) {
+      final x = leftMargin + (i / math.max(1.0, count.toDouble()) * chartWidth);
       final val = data[i].clamp(minDb, maxDb);
       final y = 10 + chartHeight - ((val - minDb) / (maxDb - minDb) * chartHeight);
       
@@ -777,61 +806,224 @@ class _Rt60PageState extends State<Rt60Page> {
   String _status = 'READY';
   double? _rt60, _edt, _t30;
   bool _isListening = false;
-  List<double> _capturedDecay = [];
+  bool _isSweeping = false;
+  
+  // High-resolution capture: (Timestamp in ms, Level in dB)
+  final List<(int, double)> _captureBuffer = [];
+  List<double> _chartData = [];
+  final Stopwatch _stopwatch = Stopwatch();
 
   void _toggleListening() {
     setState(() {
       _isListening = !_isListening;
-      if (_isListening) { _status = 'LISTENING...'; _rt60 = null; _edt = null; _t30 = null; _capturedDecay = []; _startMonitoring(); }
-      else { _status = 'READY'; _timer?.cancel(); }
+      if (_isListening) {
+        _status = 'LISTENING...';
+        _rt60 = null; _edt = null; _t30 = null;
+        _captureBuffer.clear();
+        _chartData = [];
+        _startMonitoring();
+      } else {
+        _status = 'READY';
+        _timer?.cancel();
+        _stopwatch.stop();
+      }
     });
   }
 
   void _startMonitoring() {
+    _stopwatch.reset();
+    _stopwatch.start();
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      if (!mounted || widget.activeIndex.value != 4) return;
-      if (Recorder.instance.getVolumeDb() > -25.0) { timer.cancel(); _recordDecay(); }
+      if (!mounted) return;
+      final db = Recorder.instance.getVolumeDb();
+      if (db > -25.0) {
+        timer.cancel();
+        _recordDecay();
+      }
     });
   }
 
   void _recordDecay() {
-    setState(() { _status = 'RECORDING DECAY...'; _capturedDecay = []; });
-    final DateTime start = DateTime.now();
-    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+    setState(() { _status = 'RECORDING DECAY...'; _captureBuffer.clear(); });
+    _stopwatch.reset();
+    _stopwatch.start();
+    
+    _timer = Timer.periodic(const Duration(milliseconds: 5), (timer) {
       final db = Recorder.instance.getVolumeDb();
-      _capturedDecay.add(db);
-      if (DateTime.now().difference(start).inMilliseconds > 1500) { timer.cancel(); _calculateRt60(_capturedDecay); }
+      final ms = _stopwatch.elapsedMilliseconds;
+      _captureBuffer.add((ms, db));
+      
+      if (ms > 2000) { // Record 2 seconds
+        timer.cancel();
+        _stopwatch.stop();
+        _processCapture();
+      }
       setState(() {});
     });
   }
 
-  void _calculateRt60(List<double> values) {
-    if (values.length < 50) return;
-    int peakIndex = 0;
-    for (int i = 0; i < values.length; i++) if (values[i] > values[peakIndex]) peakIndex = i;
-    final peakDb = values[peakIndex], decay = values.sublist(peakIndex);
-    double getT(double startDrop, double endDrop) {
-      List<double> points = [];
-      for (int i = 0; i < decay.length; i++) {
-        double drop = peakDb - decay[i];
-        if (drop >= startDrop && drop <= endDrop) points.add(decay[i]);
-        if (drop > endDrop) break;
+  Future<void> _runSweepTest() async {
+    setState(() {
+      _isSweeping = true;
+      _status = 'PREPARING SWEEP...';
+      _rt60 = null;
+      _captureBuffer.clear();
+      _chartData = [];
+    });
+
+    try {
+      if (!SoLoud.instance.isInitialized) {
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.defaultToSpeaker,
+          avAudioSessionMode: AVAudioSessionMode.measurement,
+          androidAudioAttributes: AndroidAudioAttributes(
+            usage: AndroidAudioUsage.media,
+            contentType: AndroidAudioContentType.music,
+          ),
+        ));
+        await session.setActive(true);
+        await SoLoud.instance.init(channels: Channels.mono, sampleRate: 44100);
       }
-      if (points.length < 5) return 0.0;
-      double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-      int n = points.length;
-      for (int i = 0; i < n; i++) { sumX += i; sumY += points[i]; sumXY += i * points[i]; sumXX += i * i; }
-      double slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-      return slope >= 0 ? 0.0 : (60.0 / slope.abs()) * 0.01;
+
+      const double sweepDuration = 3.0;
+      const int sampleRate = 44100;
+      const double f1 = 20.0;
+      const double f2 = 22050.0; // Full sample rate range (Nyquist limit)
+      final int numSamples = (sweepDuration * sampleRate).toInt();
+      final floatData = Float32List(numSamples);
+
+      final double lnRatio = math.log(f2 / f1);
+      for (int i = 0; i < numSamples; i++) {
+        final double t = i / sampleRate;
+        final double phase = (2.0 * math.pi * f1 * sweepDuration / lnRatio) * 
+                           (math.exp(t / sweepDuration * lnRatio) - 1.0);
+        double val = math.sin(phase);
+        const int fadeSamples = 2205; 
+        if (i < fadeSamples) val *= (0.5 * (1.0 - math.cos(math.pi * i / fadeSamples)));
+        if (i > numSamples - fadeSamples) val *= (0.5 * (1.0 - math.cos(math.pi * (numSamples - i) / fadeSamples)));
+        floatData[i] = val.toDouble();
+      }
+
+      final sound = SoLoud.instance.setBufferStream(
+        sampleRate: sampleRate,
+        channels: Channels.mono,
+        format: BufferType.f32le,
+        maxBufferSizeBytes: floatData.lengthInBytes,
+      );
+
+      SoLoud.instance.addAudioDataStream(sound, floatData.buffer.asUint8List());
+      SoLoud.instance.setDataIsEnded(sound);
+
+      // Start Recording for the duration of the sweep + 3s tail
+      _captureBuffer.clear();
+      _stopwatch.reset();
+      _stopwatch.start();
+      _timer = Timer.periodic(const Duration(milliseconds: 5), (t) {
+        _captureBuffer.add((_stopwatch.elapsedMilliseconds, Recorder.instance.getVolumeDb()));
+      });
+
+      setState(() => _status = 'PLAYING SWEEP...');
+      final handle = SoLoud.instance.play(sound, volume: 1.0);
+
+      await Future.delayed(Duration(milliseconds: (sweepDuration * 1000).toInt()));
+      SoLoud.instance.stop(handle);
+      SoLoud.instance.disposeSource(sound);
+      
+      setState(() => _status = 'CAPTURING TAIL...');
+      await Future.delayed(const Duration(milliseconds: 2500));
+      
+      _timer?.cancel();
+      _stopwatch.stop();
+      _processCapture();
+      
+      setState(() {
+        _isSweeping = false;
+        _status = 'MEASUREMENT COMPLETE';
+      });
+    } catch (e) {
+      setState(() {
+        _isSweeping = false;
+        _status = 'SWEEP ERROR: $e';
+      });
     }
-    setState(() { _edt = getT(0, 10); _rt60 = getT(5, 25); _t30 = getT(5, 35); _status = 'MEASUREMENT COMPLETE'; _isListening = false; });
+  }
+
+  void _processCapture() {
+    if (_captureBuffer.isEmpty) return;
+
+    // 1. Find the termination of excitation
+    // For sweeps, the level is constant, so we need the LAST peak
+    double maxLvl = -100;
+    for (var p in _captureBuffer) { if (p.$2 > maxLvl) maxLvl = p.$2; }
+    
+    int lastLoudIndex = 0;
+    for (int i = 0; i < _captureBuffer.length; i++) {
+      if (_captureBuffer[i].$2 > maxLvl - 3.0) lastLoudIndex = i;
+    }
+
+    // 2. Extract the tail (starting 30ms after excitation stops to clear hardware lag)
+    int decayStartIndex = math.min(lastLoudIndex + 6, _captureBuffer.length - 1);
+    final tail = _captureBuffer.sublist(decayStartIndex);
+    if (tail.length < 25) return;
+
+    // 3. Robust Noise Floor (Last 10% of tail)
+    int noiseStart = (tail.length * 0.9).toInt();
+    double noiseEnergySum = 0;
+    for (int i = noiseStart; i < tail.length; i++) {
+      noiseEnergySum += math.pow(10, tail[i].$2 / 10);
+    }
+    double noiseFloorEnergy = noiseEnergySum / (tail.length - noiseStart);
+
+    // 4. Schroeder Integration (Noise-Compensated EDC)
+    final List<double> energy = tail.map((p) => math.max(math.pow(10, p.$2 / 10) - noiseFloorEnergy, 1e-12).toDouble()).toList();
+    final List<double> edc = List.filled(energy.length, 0.0);
+    double backwardSum = 0;
+    for (int i = energy.length - 1; i >= 0; i--) {
+      backwardSum += energy[i];
+      edc[i] = backwardSum;
+    }
+    
+    final double maxEnergy = edc[0];
+    final List<double> edcDb = edc.map((e) => 10.0 * math.log(math.max(e / maxEnergy, 1e-10)) / math.ln10).toList();
+
+    // 5. Precise Linear Regression on EDC
+    double calculateT(double startDrop, double endDrop) {
+      int iStart = -1, iEnd = -1;
+      for (int i = 0; i < edcDb.length; i++) {
+        if (iStart == -1 && edcDb[i] <= -startDrop) iStart = i;
+        if (iEnd == -1 && edcDb[i] <= -endDrop) iEnd = i;
+      }
+      if (iStart == -1 || iEnd == -1 || iEnd <= iStart) return 0.0;
+
+      double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      int count = 0;
+      final int startMs = tail[iStart].$1;
+      for (int i = iStart; i <= iEnd; i++) {
+        double x = (tail[i].$1 - startMs) / 1000.0; // Accurate time from Stopwatch
+        double y = edcDb[i];
+        sumX += x; sumY += y; sumXY += x * y; sumXX += x * x;
+        count++;
+      }
+      if (count < 5) return 0.0;
+      double slope = (count * sumXY - sumX * sumY) / (count * sumXX - sumX * sumX);
+      return slope >= 0 ? 0.0 : (60.0 / slope.abs());
+    }
+
+    setState(() {
+      _chartData = edcDb;
+      _edt = calculateT(0, 10);
+      _rt60 = calculateT(5, 25);
+      _t30 = calculateT(5, 35);
+    });
   }
 
   @override void dispose() { _timer?.cancel(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
@@ -852,8 +1044,15 @@ class _Rt60PageState extends State<Rt60Page> {
                 children: [_miniMetric('EDT', _edt), _miniMetric('T20', _rt60), _miniMetric('T30', _t30)],
               ),
             ),
-          const Spacer(),
-          _buildActionButton(_isListening ? 'STOP' : 'START TEST', _isListening ? Colors.redAccent : Colors.blueAccent, _toggleListening),
+          const SizedBox(height: 32),
+          Row(
+            children: [
+              Expanded(child: _buildActionButton(_isListening ? 'STOP' : 'IMPULSE TEST', _isListening ? Colors.redAccent : Colors.blueAccent, _toggleListening)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildActionButton(_isSweeping ? 'SWEEPING...' : 'SWEEP TEST', _isSweeping ? Colors.orangeAccent : Colors.greenAccent, _isSweeping ? () {} : _runSweepTest)),
+            ],
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -869,7 +1068,7 @@ class _Rt60PageState extends State<Rt60Page> {
         border: Border.all(color: _cal.isWhiteDesign ? Colors.black12 : Colors.white10),
       ),
       child: CustomPaint(
-        painter: DecayCurvePainter(data: _capturedDecay),
+        painter: DecayCurvePainter(data: _chartData),
       ),
     );
   }
@@ -981,15 +1180,16 @@ class _RastiPageState extends State<RastiPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
           _buildInfoPanel('SPEECH TRANSMISSION INDEX (RASTI)', _status),
           const SizedBox(height: 60),
           if (_rasti != null) _buildRastiGauge(),
-          const Spacer(),
+          const SizedBox(height: 60),
           _buildActionButton(),
+          const SizedBox(height: 24),
         ],
       ),
     );

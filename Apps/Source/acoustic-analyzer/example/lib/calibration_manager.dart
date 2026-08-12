@@ -48,7 +48,7 @@ class CalibrationManager {
   double referenceOffset = 100.0;
 
   WeightingType currentWeighting = WeightingType.a;
-  TimeWeighting currentTimeWeighting = TimeWeighting.fast;
+  TimeWeighting currentTimeWeighting = TimeWeighting.slow;
   OctaveResolution octaveResolution = OctaveResolution.oneThird;
   bool isFreeFieldCorrectionEnabled = false;
 
@@ -65,7 +65,7 @@ class CalibrationManager {
 
   double limitThreshold = 85.0;
   bool isLimitExceeded = false;
-  bool isWhiteDesign = false;
+  bool isWhiteDesign = true;
 
   void _initOctaveBands() {
     final centers = [
