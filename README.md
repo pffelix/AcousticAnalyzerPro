@@ -3,7 +3,7 @@
 
 ### Content
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
-Source files are located in: [Apps/Source/acoustic-analyzer/example/lib](Apps/Source/acoustic-analyzer/example/lib)
+Dart source files are located in: [Apps/Source/acoustic-analyzer/example/lib](Apps/Source/acoustic-analyzer/example/lib)
 
 ### Installation
 You can install and run the app in Android Studio after importing the gradle project as following:
