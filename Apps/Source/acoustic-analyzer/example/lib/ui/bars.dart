@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_recorder/flutter_recorder.dart';
-import 'package:flutter_recorder_example/ui/fft_painter.dart';
-import 'package:flutter_recorder_example/ui/vu_meter.dart';
-import 'package:flutter_recorder_example/ui/wave_painter.dart';
+import 'package:acoustic_analyzer_pro/ui/fft_painter.dart';
+import 'package:acoustic_analyzer_pro/ui/vu_meter.dart';
+import 'package:acoustic_analyzer_pro/ui/wave_painter.dart';
 
 /// Visualizer for audio data
 class Bars extends StatefulWidget {

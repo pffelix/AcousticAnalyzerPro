@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.flutter_recorder_example"
+    namespace = "com.example.acoustic_analyzer_pro"
     compileSdk = 34
     ndkVersion = flutter.ndkVersion
 

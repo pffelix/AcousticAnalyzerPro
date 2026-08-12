@@ -14,6 +14,7 @@ const double kSampleRate = 44100.0;
 
 void main() {
   runApp(const MaterialApp(
+    title: 'AcousticAnalyzerPro',
     debugShowCheckedModeBanner: false,
     home: MainScreen(),
   ));
