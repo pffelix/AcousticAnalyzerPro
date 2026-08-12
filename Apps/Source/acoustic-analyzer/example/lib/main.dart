@@ -148,9 +148,29 @@ class _MainScreenState extends State<MainScreen> {
               },
               style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 16),
             ),
-            backgroundColor: _cal.isWhiteDesign ? Colors.grey[200] : const Color(0xFF1A1A1A),
-            foregroundColor: _cal.isWhiteDesign ? Colors.blue : Colors.greenAccent,
-            elevation: 4,
+            backgroundColor: _cal.isWhiteDesign 
+              ? (switch (index) {
+                  0 => Colors.blue[50],
+                  1 => Colors.cyan[50],
+                  2 => Colors.green[50],
+                  3 => Colors.orange[50],
+                  4 => Colors.red[50],
+                  5 => Colors.deepPurple[50],
+                  _ => Colors.grey[200],
+                })
+              : const Color(0xFF1A1A1A),
+            foregroundColor: _cal.isWhiteDesign 
+              ? (switch (index) {
+                  0 => Colors.blue[700],
+                  1 => Colors.cyan[800],
+                  2 => Colors.green[800],
+                  3 => Colors.orange[900],
+                  4 => Colors.red[800],
+                  5 => Colors.deepPurple[800],
+                  _ => Colors.blue,
+                })
+              : Colors.greenAccent,
+            elevation: 2,
             centerTitle: true,
             actions: [
               IconButton(
@@ -166,29 +186,52 @@ class _MainScreenState extends State<MainScreen> {
               Expanded(child: content),
             ],
           ),
-          bottomNavigationBar: Theme(
-            data: _cal.isWhiteDesign ? ThemeData.light() : ThemeData.dark().copyWith(canvasColor: const Color(0xFF1A1A1A)),
-            child: BottomNavigationBar(
-              currentIndex: index,
-              backgroundColor: _cal.isWhiteDesign ? Colors.grey[200] : const Color(0xFF1A1A1A),
-              selectedItemColor: _cal.isWhiteDesign ? Colors.blue : Colors.greenAccent,
-              unselectedItemColor: _cal.isWhiteDesign ? Colors.black26 : Colors.white24,
-              type: BottomNavigationBarType.fixed,
-              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9),
-              unselectedLabelStyle: const TextStyle(fontSize: 9),
-              onTap: (newIndex) => _selectedIndex.value = newIndex,
-              items: const [
-                BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), label: 'HOME'),
-                BottomNavigationBarItem(icon: Icon(Icons.waves), label: 'SPECTRO'),
-                BottomNavigationBarItem(icon: Icon(Icons.speed), label: 'SLM'),
-                BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'RTA'),
-                BottomNavigationBarItem(icon: Icon(Icons.timer_outlined), label: 'RT60'),
-                BottomNavigationBarItem(icon: Icon(Icons.record_voice_over), label: 'RASTI'),
-              ],
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: _cal.isWhiteDesign ? Colors.grey[300]! : Colors.white10)),
+              boxShadow: _cal.isWhiteDesign ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)] : null,
+            ),
+            child: Theme(
+              data: _cal.isWhiteDesign ? ThemeData.light() : ThemeData.dark().copyWith(canvasColor: const Color(0xFF1A1A1A)),
+              child: BottomNavigationBar(
+                currentIndex: index,
+                backgroundColor: _cal.isWhiteDesign ? Colors.white : const Color(0xFF1A1A1A),
+                selectedItemColor: _cal.isWhiteDesign 
+                  ? (switch (index) {
+                      0 => Colors.blue[700],
+                      1 => Colors.cyan[700],
+                      2 => Colors.green[700],
+                      3 => Colors.orange[800],
+                      4 => Colors.red[700],
+                      5 => Colors.deepPurple[700],
+                      _ => Colors.blue[700],
+                    })
+                  : Colors.greenAccent,
+                unselectedItemColor: _cal.isWhiteDesign ? Colors.black38 : Colors.white24,
+                type: BottomNavigationBarType.fixed,
+                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10),
+                unselectedLabelStyle: const TextStyle(fontSize: 9),
+                onTap: (newIndex) => _selectedIndex.value = newIndex,
+                items: [
+                  _navItem(Icons.dashboard_outlined, 'HOME', Colors.blue, index == 0),
+                  _navItem(Icons.waves, 'SPECTRO', Colors.cyan, index == 1),
+                  _navItem(Icons.speed, 'SLM', Colors.green, index == 2),
+                  _navItem(Icons.bar_chart, 'RTA', Colors.orange, index == 3),
+                  _navItem(Icons.timer_outlined, 'RT60', Colors.red, index == 4),
+                  _navItem(Icons.record_voice_over, 'RASTI', Colors.deepPurple, index == 5),
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  BottomNavigationBarItem _navItem(IconData icon, String label, Color col, bool active) {
+    return BottomNavigationBarItem(
+      icon: Icon(icon, color: active && _cal.isWhiteDesign ? col : null),
+      label: label,
     );
   }
 
@@ -225,13 +268,22 @@ class _MainScreenState extends State<MainScreen> {
       child: Column(
         children: [
           DrawerHeader(
-            decoration: BoxDecoration(color: _cal.isWhiteDesign ? Colors.grey[200] : const Color(0xFF0A0A0A)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Acoustic Analyzer', style: TextStyle(color: _cal.isWhiteDesign ? Colors.blue : Colors.greenAccent, fontSize: 20, fontWeight: FontWeight.w900)),
-                Text('Professional Edition', style: TextStyle(color: _cal.isWhiteDesign ? Colors.black54 : Colors.white54, fontSize: 12)),
-              ],
+            decoration: BoxDecoration(
+              gradient: _cal.isWhiteDesign 
+                ? LinearGradient(colors: [Colors.blue[700]!, Colors.blue[400]!], begin: Alignment.topLeft, end: Alignment.bottomRight)
+                : null,
+              color: _cal.isWhiteDesign ? null : const Color(0xFF0A0A0A),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Acoustic Analyzer', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text('Professional Edition', style: TextStyle(color: Colors.white70, fontSize: 13, letterSpacing: 1)),
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -244,7 +296,7 @@ class _MainScreenState extends State<MainScreen> {
                   debugPrint(csv);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CSV Data Exported to Debug Console')));
                 }),
-                const Divider(color: Colors.white10),
+                Divider(color: _cal.isWhiteDesign ? Colors.black12 : Colors.white10),
                 _drawerItem(Icons.tune, 'Global Settings', () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (c) => const SettingsPage())).then((_) => setState(() {}));
@@ -262,8 +314,8 @@ class _MainScreenState extends State<MainScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text('SAVED PROJECTS', style: TextStyle(color: Colors.greenAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+        backgroundColor: _cal.isWhiteDesign ? Colors.white : const Color(0xFF1A1A1A),
+        title: Text('SAVED PROJECTS', style: TextStyle(color: _cal.isWhiteDesign ? Colors.blue[800] : Colors.greenAccent, fontSize: 14, fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -272,21 +324,21 @@ class _MainScreenState extends State<MainScreen> {
             itemBuilder: (c, i) {
               final p = _cal.projects[i];
               return ListTile(
-                title: Text('${p.db.toStringAsFixed(1)} dB(${p.weighting})', style: const TextStyle(color: Colors.white)),
-                subtitle: Text(p.timestamp.toString().substring(0, 19), style: const TextStyle(color: Colors.white24, fontSize: 10)),
+                title: Text('${p.db.toStringAsFixed(1)} dB(${p.weighting})', style: TextStyle(color: _cal.isWhiteDesign ? Colors.black87 : Colors.white)),
+                subtitle: Text(p.timestamp.toString().substring(0, 19), style: TextStyle(color: _cal.isWhiteDesign ? Colors.black38 : Colors.white24, fontSize: 10)),
               );
             },
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('CLOSE'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('CLOSE', style: TextStyle(color: _cal.isWhiteDesign ? Colors.blue[700] : Colors.greenAccent)))],
       ),
     );
   }
 
   Widget _drawerItem(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
-      leading: Icon(icon, color: Colors.greenAccent),
-      title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 14)),
+      leading: Icon(icon, color: _cal.isWhiteDesign ? Colors.blue[700] : Colors.greenAccent),
+      title: Text(title, style: TextStyle(color: _cal.isWhiteDesign ? Colors.black87 : Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
       onTap: onTap,
     );
   }
@@ -1293,7 +1345,7 @@ class _DashboardPageState extends State<DashboardPage> {
         children: [
           _buildSummaryCard(),
           const SizedBox(height: 24),
-          const Text('SYSTEM OVERVIEW', style: TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+          Text('SYSTEM OVERVIEW', style: TextStyle(color: _cal.isWhiteDesign ? Colors.black26 : Colors.white24, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
           const SizedBox(height: 12),
           _quickGrid(),
         ],
@@ -1398,5 +1450,5 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _section(String title) => Padding(padding: const EdgeInsets.fromLTRB(16, 24, 16, 8), child: Text(title, style: TextStyle(color: _cal.isWhiteDesign ? Colors.grey : Colors.white24, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)));
-  Widget _settingTile(String title, String val, VoidCallback onTap) => ListTile(title: Text(title, style: TextStyle(color: _cal.isWhiteDesign ? Colors.black : Colors.white)), subtitle: Text(val, style: TextStyle(color: _cal.isWhiteDesign ? Colors.blue : Colors.greenAccent)), trailing: const Icon(Icons.chevron_right, color: Colors.white24), onTap: onTap);
+  Widget _settingTile(String title, String val, VoidCallback onTap) => ListTile(title: Text(title, style: TextStyle(color: _cal.isWhiteDesign ? Colors.black : Colors.white)), subtitle: Text(val, style: TextStyle(color: _cal.isWhiteDesign ? Colors.blue : Colors.greenAccent)), trailing: Icon(Icons.chevron_right, color: _cal.isWhiteDesign ? Colors.black12 : Colors.white24), onTap: onTap);
 }

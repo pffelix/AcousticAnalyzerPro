@@ -5,7 +5,7 @@
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
 
 ### Installation
-You can install and run the app in Android Studio as following:
+You can install and run the app in Android Studio after importing the gradle project as following:
 
 ```python
 Windows
