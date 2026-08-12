@@ -32,9 +32,9 @@ class SavedMeasurement {
   SavedMeasurement({required this.timestamp, required this.db, required this.leq, required this.weighting});
 }
 
-class CalibrationManager {
-  static final CalibrationManager instance = CalibrationManager._();
-  CalibrationManager._() {
+class Manager {
+  static final Manager instance = Manager._();
+  Manager._() {
     _initOctaveBands();
   }
 

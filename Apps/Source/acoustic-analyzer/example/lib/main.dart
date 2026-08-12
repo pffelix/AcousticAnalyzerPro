@@ -8,7 +8,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flutter_recorder/flutter_recorder.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'calibration_manager.dart';
+import 'manager.dart';
 
 const double kSampleRate = 44100.0;
 
@@ -30,7 +30,7 @@ class _MainScreenState extends State<MainScreen> {
   final ValueNotifier<int> _selectedIndex = ValueNotifier(0);
   bool _isInitialized = false;
   String _error = '';
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
 
   @override
   void initState() {
@@ -340,7 +340,7 @@ class _SplMeterPageState extends State<SplMeterPage> {
   double _db = -100.0;
   double _peak = -100.0;
   Timer? _timer;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
 
   @override
   void initState() {
@@ -546,7 +546,7 @@ class RtaPage extends StatefulWidget {
 
 class _RtaPageState extends State<RtaPage> {
   Timer? _timer;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   final List<double> _maxHold = List.filled(31, -100.0);
 
   @override
@@ -603,7 +603,7 @@ class _RtaPageState extends State<RtaPage> {
 
 class SpectrogramPainter extends CustomPainter {
   final List<Float32List> history;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   
   // Cache for calibration gains to avoid repeated heavy math
   static Float32List? _gainCache;
@@ -675,7 +675,7 @@ class RtaPainter extends CustomPainter {
   final List<OctaveBand> bands;
   final List<double> maxHold;
   final List<double>? reference;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   RtaPainter({required this.bands, required this.maxHold, this.reference});
 
   @override
@@ -726,7 +726,7 @@ class RtaPainter extends CustomPainter {
 
 class DecayCurvePainter extends CustomPainter {
   final List<double> data;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   DecayCurvePainter({required this.data});
 
   @override
@@ -802,7 +802,7 @@ class Rt60Page extends StatefulWidget {
 
 class _Rt60PageState extends State<Rt60Page> {
   Timer? _timer;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   String _status = 'READY';
   double? _rt60, _edt, _t30;
   bool _isListening = false;
@@ -1127,7 +1127,7 @@ class RastiPage extends StatefulWidget {
 
 class _RastiPageState extends State<RastiPage> {
   Timer? _timer;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   String _status = 'READY';
   double? _rasti;
   bool _isMeasuring = false;
@@ -1271,7 +1271,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   Timer? _timer;
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   double _db = -100.0;
   @override
   void initState() {
@@ -1364,7 +1364,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final _cal = CalibrationManager.instance;
+  final _cal = Manager.instance;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
