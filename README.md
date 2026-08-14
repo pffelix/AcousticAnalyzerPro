@@ -1,13 +1,14 @@
 # Acoustic Analyzer Pro
-![image_setup](App/Logos/acoustic-analyzer-pro_custom_color_transparent.png?raw=true)
+<p align="center" width="100%">
+  <img width="50%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
+</p>
+<p align="center" width="100%">
+  <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
+</p>
 
 ### Content
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
 As audio backend MiniAudio is used. Dart source files are located in: [Apps/Source/acoustic-analyzer/example/lib](Apps/Source/acoustic-analyzer/example/lib)
-
-<p align="center" width="100%">
-  <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
-</p>
 
 ### Installation
 You can install and run the app in Android Studio after importing the gradle project as following:
