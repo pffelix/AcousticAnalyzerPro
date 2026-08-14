@@ -16,5 +16,9 @@ Android
 flutter.bat --no-color run --machine --track-widget-creation --device-id=device-id --start-paused --android-skip-build-dependency-validation --dart-define=flutter.inspector.structuredErrors=true --devtools-server-address=http://127.0.0.1:9100 lib\main.dart
 
 ```
+
 ### Author
 Felix Pfreundtner
+
+![image_setup](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png?raw=true)
+
