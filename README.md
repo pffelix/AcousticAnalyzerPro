@@ -1,6 +1,6 @@
 # Acoustic Analyzer Pro
 <p align="center" width="100%">
-  <img width="50%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
+  <img width="33%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
 </p>
 <p align="center" width="100%">
   <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
