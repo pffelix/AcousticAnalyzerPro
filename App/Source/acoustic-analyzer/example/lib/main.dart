@@ -681,6 +681,9 @@ class SpectrogramPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Draw background
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = _cal.isWhiteDesign ? Colors.white : Colors.black);
+
     if (history.isEmpty) return;
     
     const double labelWidth = 55.0;
@@ -703,7 +706,7 @@ class SpectrogramPainter extends CustomPainter {
         final double rawMagnitude = (fft[f] * _gainCache![f]).clamp(0.0, 1.0);
         final double magnitude = math.pow(rawMagnitude, 0.4).toDouble();
         
-        paint.color = _getHeatmapColor(magnitude);
+        paint.color = _getHeatmapColor(magnitude, _cal.isWhiteDesign);
 
         canvas.drawRect(
           Rect.fromLTWH(x, size.height - (f * stepY) - stepY, stepX + 0.5, stepY + 0.5),
@@ -721,9 +724,10 @@ class SpectrogramPainter extends CustomPainter {
     }
   }
 
-  Color _getHeatmapColor(double magnitude) {
-    if (magnitude < 0.05) return Colors.black;
-    if (magnitude < 0.25) return Color.lerp(Colors.black, Colors.blue, (magnitude - 0.05) / 0.2)!;
+  Color _getHeatmapColor(double magnitude, bool isWhiteDesign) {
+    final Color baseColor = isWhiteDesign ? Colors.white : Colors.black;
+    if (magnitude < 0.05) return baseColor;
+    if (magnitude < 0.25) return Color.lerp(baseColor, Colors.blue, (magnitude - 0.05) / 0.2)!;
     if (magnitude < 0.5) return Color.lerp(Colors.blue, Colors.green, (magnitude - 0.25) / 0.25)!;
     if (magnitude < 0.75) return Color.lerp(Colors.green, Colors.yellow, (magnitude - 0.5) / 0.25)!;
     return Color.lerp(Colors.yellow, Colors.red, (magnitude - 0.75) / 0.25)!;
