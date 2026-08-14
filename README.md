@@ -1,5 +1,8 @@
 # Acoustic Analyzer Pro
 ![image_setup](App/Logos/acoustic-analyzer-pro_custom_color_transparent.png?raw=true)
+<p align="center" width="100%">
+  <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
+</p>
 
 ### Content
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
@@ -19,6 +22,3 @@ flutter.bat --no-color run --machine --track-widget-creation --device-id=device-
 
 ### Author
 Felix Pfreundtner
-<p align="center" width="100%">
-  <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
-</p>
