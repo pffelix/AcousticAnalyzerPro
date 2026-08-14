@@ -20,5 +20,5 @@ flutter.bat --no-color run --machine --track-widget-creation --device-id=device-
 ### Author
 Felix Pfreundtner
 <p align="center" width="100%">
-![image_setup](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro_small.png?raw=true)
+  <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
 </p>
