@@ -1,5 +1,5 @@
 # Acoustic Analyzer Pro
-![image_setup](Apps/Logos/acoustic-analyzer-pro_custom_color_transparent.png?raw=true)
+![image_setup](App/Logos/acoustic-analyzer-pro_custom_color_transparent.png?raw=true)
 
 ### Content
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
