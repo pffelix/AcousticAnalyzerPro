@@ -64,8 +64,15 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _initRecorder() async {
-    final status = await Permission.microphone.request();
-    if (status != PermissionStatus.granted) {
+    final statuses = await [
+      Permission.microphone,
+      Permission.photos,
+      Permission.videos,
+      Permission.audio,
+      Permission.storage,
+    ].request();
+
+    if (statuses[Permission.microphone] != PermissionStatus.granted) {
       setState(() => _error = 'Microphone permission denied');
       return;
     }
