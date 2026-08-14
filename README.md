@@ -4,6 +4,7 @@
 ### Content
 The app generates a professional acoustic analyzer. It is listed on the PlayStore. It was generated with Gemini Flash 3.
 As audio backend MiniAudio is used. Dart source files are located in: [Apps/Source/acoustic-analyzer/example/lib](Apps/Source/acoustic-analyzer/example/lib)
+
 <p align="center" width="100%">
   <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
 </p>
