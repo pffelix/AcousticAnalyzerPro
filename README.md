@@ -7,6 +7,16 @@
   <img src="App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png" alt="Zweites Bild">
   <img src="App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png" alt="Drittes Bild">
 </div>
+<style>
+  .bild-reihe {
+    display: flex;
+    justify-content: space-between; /* optional für Abstände */
+  }
+  .bild-reihe img {
+    width: 33.333%;
+    height: auto;
+  }
+</style>
 
 ### Content
 The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
