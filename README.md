@@ -2,21 +2,10 @@
 <p align="center" width="100%">
   <img width="33%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
 </p>
-<div class="bild-reihe">
-  <img src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png" alt="Erstes Bild">
-  <img src="App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png" alt="Zweites Bild">
-  <img src="App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png" alt="Drittes Bild">
-</div>
-<style>
-  .bild-reihe {
-    display: flex;
-    justify-content: space-between; /* optional für Abstände */
-  }
-  .bild-reihe img {
-    width: 33.333%;
-    height: auto;
-  }
-</style>
+
+Solarized dark             |  Solarized Ocean
+:-------------------------:|:-------------------------:
+![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)
 
 ### Content
 The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
