@@ -3,9 +3,9 @@
   <img width="33%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
 </p>
 
-Solarized dark             |  Solarized Ocean
-:-------------------------:|:-------------------------:
-![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)
+Solarized dark             |  Solarized Ocean             |  Solarized Ocean
+:-------------------------:|:-------------------------:|:-------------------------:
+![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro)
 
 ### Content
 The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
