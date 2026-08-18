@@ -5,7 +5,7 @@
 
 Solarized dark             |  Solarized Ocean             |  Solarized Ocean
 :-------------------------:|:-------------------------:|:-------------------------:
-![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro)
+![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png)
 
 ### Content
 The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
