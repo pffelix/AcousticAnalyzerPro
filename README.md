@@ -5,6 +5,12 @@
 <p align="center" width="100%">
   <img width="33%" src="App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png">
 </p>
+<p align="center" width="100%">
+  <img width="33%" src="App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png">
+</p>
+<p align="center" width="100%">
+  <img width="33%" src="App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png">
+</p>
 
 ### Content
 The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
