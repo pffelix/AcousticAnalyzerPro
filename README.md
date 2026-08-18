@@ -3,7 +3,7 @@
   <img width="33%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
 </p>
 
-Sound Level Meter             |  Real Time Analyzer             |  Reverberation Time
+Sound Level Meter             |  Real Time Analyzer              |  Reverberation Time
 :-------------------------:|:-------------------------:|:-------------------------:
 ![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png)
 
