@@ -3,7 +3,7 @@
   <img width="33%" src="App/Logos/acoustic-analyzer-pro_vertical_color_transparent_small.png">
 </p>
 
-Acoustic Analyzer Pro             |  Acoustic Analyzer Pro              |  Acoustic Analyzer Pro
+Widget 1             |  Widget 2              |  Widget 3
 :-------------------------:|:-------------------------:|:-------------------------:
 ![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png)
 
