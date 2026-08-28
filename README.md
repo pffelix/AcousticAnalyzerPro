@@ -8,8 +8,7 @@ Widget 1             |  Widget 2              |  Widget 3
 ![](App/Images/Screenshot_20260814-140214_AcousticAnalyzerPro.png)  |  ![](App/Images/Screenshot_20260818-075237_AcousticAnalyzerPro.png)   |  ![](App/Images/Screenshot_20260818-075328_AcousticAnalyzerPro.png)
 
 ### Content
-The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3.
-As audio backend MiniAudio is used. Dart source files are located in: [App/Source/acoustic-analyzer/example/lib](App/Source/acoustic-analyzer/example/lib)
+The app generates a professional acoustic analyzer. It was generated with Gemini Flash 3. It's my first fully AI programmed app. As audio backend MiniAudio is used. Dart source files are located in: [App/Source/acoustic-analyzer/example/lib](App/Source/acoustic-analyzer/example/lib)
 
 ### Installation
 You can install and run the app in Android Studio after importing the gradle project as following:
